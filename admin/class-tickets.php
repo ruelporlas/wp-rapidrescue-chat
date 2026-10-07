@@ -17,12 +17,10 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 	/**
 	 * Kept for compatibility.
 	 *
-	 * The menu is registered by the main plugin controller.
-	 *
 	 * @return void
 	 */
 	public static function register_menu() {
-		// Menu registration is handled by WP_RapidRescue_Chat_Plugin.
+		// Menu registration is handled by the main plugin controller.
 	}
 
 	/**
@@ -82,6 +80,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					<tr>
 						<th>Ticket</th>
 						<th>Customer</th>
+						<th>Email</th>
 						<th>Subject</th>
 						<th>Status</th>
 						<th>Priority</th>
@@ -95,7 +94,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					<?php if ( empty( $tickets ) ) : ?>
 
 						<tr>
-							<td colspan="7">
+							<td colspan="8">
 								No tickets found.
 							</td>
 						</tr>
@@ -133,6 +132,18 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 											);
 									} else {
 										echo 'Anonymous';
+									}
+									?>
+								</td>
+
+								<td>
+									<?php
+									if ( ! empty( $ticket->customer_email ) ) {
+										echo esc_html(
+											$ticket->customer_email
+										);
+									} else {
+										echo '—';
 									}
 									?>
 								</td>
@@ -197,7 +208,6 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 			);
 
 		if ( ! $ticket ) {
-
 			?>
 			<div class="wrap">
 
@@ -325,6 +335,42 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 								);
 							} else {
 								echo 'Anonymous';
+							}
+							?>
+						</td>
+					</tr>
+
+					<tr>
+						<th>
+							Customer Email
+						</th>
+
+						<td>
+							<?php
+							if ( ! empty( $ticket->customer_email ) ) {
+								echo esc_html(
+									$ticket->customer_email
+								);
+							} elseif ( ! empty( $ticket->customer_id ) ) {
+
+								$customer =
+									WP_RapidRescue_Chat_Customer::get_by_id(
+										$ticket->customer_id
+									);
+
+								if (
+									$customer &&
+									! empty( $customer->email )
+								) {
+									echo esc_html(
+										$customer->email
+									);
+								} else {
+									echo '—';
+								}
+
+							} else {
+								echo '—';
 							}
 							?>
 						</td>

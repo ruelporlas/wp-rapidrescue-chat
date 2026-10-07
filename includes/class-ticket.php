@@ -75,6 +75,7 @@ class WP_RapidRescue_Chat_Ticket {
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			ticket_key varchar(20) NOT NULL DEFAULT '',
 			customer_id bigint(20) unsigned NULL,
+			customer_email varchar(191) NOT NULL DEFAULT '',
 			conversation_id bigint(20) unsigned NULL,
 			subject varchar(255) NOT NULL DEFAULT '',
 			summary longtext NULL,
@@ -85,6 +86,7 @@ class WP_RapidRescue_Chat_Ticket {
 			PRIMARY KEY  (id),
 			UNIQUE KEY ticket_key (ticket_key),
 			KEY customer_id (customer_id),
+			KEY customer_email (customer_email),
 			KEY conversation_id (conversation_id),
 			KEY status (status),
 			KEY priority (priority),
@@ -114,33 +116,37 @@ class WP_RapidRescue_Chat_Ticket {
 
 		global $wpdb;
 
-		$subject = sanitize_text_field(
-			$subject
-		);
+		$subject = sanitize_text_field( $subject );
+		$summary = sanitize_textarea_field( $summary );
 
-		$summary = sanitize_textarea_field(
-			$summary
-		);
-
-		$customer_id = absint(
-			$customer_id
-		);
+		$customer_id = absint( $customer_id );
 
 		if ( $customer_id < 1 ) {
 			$customer_id = null;
 		}
 
-		$conversation_id = absint(
-			$conversation_id
-		);
+		$customer_email = '';
+
+		if ( $customer_id ) {
+
+			$customer = WP_RapidRescue_Chat_Customer::get_by_id(
+				$customer_id
+			);
+
+			if ( $customer && ! empty( $customer->email ) ) {
+				$customer_email = sanitize_email(
+					$customer->email
+				);
+			}
+		}
+
+		$conversation_id = absint( $conversation_id );
 
 		if ( $conversation_id < 1 ) {
 			$conversation_id = null;
 		}
 
-		$priority = sanitize_key(
-			$priority
-		);
+		$priority = sanitize_key( $priority );
 
 		if (
 			! in_array(
@@ -173,9 +179,10 @@ class WP_RapidRescue_Chat_Ticket {
 		$result = $wpdb->insert(
 			self::table(),
 			array(
-				'ticket_key'      => '',
-				'customer_id'     => $customer_id,
-				'conversation_id' => $conversation_id,
+				'ticket_key'     => '',
+				'customer_id'    => $customer_id,
+				'customer_email' => $customer_email,
+				'conversation_id'=> $conversation_id,
 				'subject'        => $subject,
 				'summary'        => $summary,
 				'status'         => 'open',
@@ -186,6 +193,7 @@ class WP_RapidRescue_Chat_Ticket {
 			array(
 				'%s',
 				'%d',
+				'%s',
 				'%d',
 				'%s',
 				'%s',
@@ -365,9 +373,9 @@ class WP_RapidRescue_Chat_Ticket {
 		return array(
 			'created'        => true,
 			'already_exists' => false,
-			'ticket_id'      => (int) $ticket->id,
-			'ticket_key'     => $ticket->ticket_key,
-			'ticket'         => $ticket,
+			'ticket_id'     => (int) $ticket->id,
+			'ticket_key'    => $ticket->ticket_key,
+			'ticket'        => $ticket,
 		);
 	}
 
@@ -442,9 +450,6 @@ class WP_RapidRescue_Chat_Ticket {
 	/**
 	 * Assign an anonymous ticket to a verified customer.
 	 *
-	 * This is intended for legacy tickets that were created before
-	 * customer identity was required.
-	 *
 	 * @param int $ticket_id Ticket ID.
 	 * @param int $customer_id Customer ID.
 	 * @return bool|WP_Error
@@ -456,7 +461,7 @@ class WP_RapidRescue_Chat_Ticket {
 
 		global $wpdb;
 
-		$ticket_id  = absint( $ticket_id );
+		$ticket_id   = absint( $ticket_id );
 		$customer_id = absint( $customer_id );
 
 		if ( $ticket_id < 1 ) {
@@ -484,11 +489,49 @@ class WP_RapidRescue_Chat_Ticket {
 			);
 		}
 
+		$customer = WP_RapidRescue_Chat_Customer::get_by_id(
+			$customer_id
+		);
+
+		$customer_email = '';
+
+		if ( $customer && ! empty( $customer->email ) ) {
+			$customer_email = sanitize_email(
+				$customer->email
+			);
+		}
+
 		if ( absint( $ticket->customer_id ) > 0 ) {
+
 			if (
 				absint( $ticket->customer_id ) ===
 				$customer_id
 			) {
+
+				if ( '' !== $customer_email ) {
+					$wpdb->update(
+						self::table(),
+						array(
+							'customer_email' => $customer_email,
+							'updated_at'     =>
+								current_time(
+									'mysql',
+									true
+								),
+						),
+						array(
+							'id' => $ticket_id,
+						),
+						array(
+							'%s',
+							'%s',
+						),
+						array(
+							'%d',
+						)
+					);
+				}
+
 				return true;
 			}
 
@@ -501,14 +544,19 @@ class WP_RapidRescue_Chat_Ticket {
 		$result = $wpdb->update(
 			self::table(),
 			array(
-				'customer_id' => $customer_id,
-				'updated_at'  => current_time( 'mysql', true ),
+				'customer_id'    => $customer_id,
+				'customer_email' => $customer_email,
+				'updated_at'     => current_time(
+					'mysql',
+					true
+				),
 			),
 			array(
 				'id' => $ticket_id,
 			),
 			array(
 				'%d',
+				'%s',
 				'%s',
 			),
 			array(
@@ -734,11 +782,10 @@ class WP_RapidRescue_Chat_Ticket {
 			return true;
 		}
 
-		$data['updated_at'] =
-			current_time(
-				'mysql',
-				true
-			);
+		$data['updated_at'] = current_time(
+			'mysql',
+			true
+		);
 
 		$formats[] = '%s';
 

@@ -485,81 +485,83 @@ class WP_RapidRescue_Chat_Conversation {
 	}
 
 	/**
-	 * Set a pending sensitive escalation request.
-	 *
-	 * The ticket is NOT created here.
-	 *
-	 * @param int    $conversation_id Conversation ID.
-	 * @param string $subject Ticket subject.
-	 * @param string $summary Ticket summary.
-	 * @param string $priority Ticket priority.
-	 * @param string $reason Escalation reason.
-	 * @return bool|WP_Error
-	 */
-	public static function set_pending_sensitive_escalation(
-		$conversation_id,
-		$subject,
-		$summary,
-		$priority = 'normal',
-		$reason = ''
-	) {
+ * Set a pending sensitive escalation request.
+ *
+ * The ticket is NOT created here.
+ *
+ * @param int    $conversation_id Conversation ID.
+ * @param string $subject Ticket subject.
+ * @param string $summary Ticket summary.
+ * @param string $priority Ticket priority.
+ * @param string $reason Escalation reason.
+ * @param bool   $confirmed Whether the customer has already confirmed creation.
+ * @return bool|WP_Error
+ */
+public static function set_pending_sensitive_escalation(
+	$conversation_id,
+	$subject,
+	$summary,
+	$priority = 'normal',
+	$reason = '',
+	$confirmed = false
+) {
 
-		$conversation_id = absint( $conversation_id );
+	$conversation_id = absint( $conversation_id );
 
-		if ( $conversation_id < 1 ) {
-			return new WP_Error(
-				'invalid_conversation',
-				'Invalid conversation.'
-			);
-		}
-
-		$conversation = self::get_by_id(
-			$conversation_id
-		);
-
-		if ( ! $conversation ) {
-			return new WP_Error(
-				'conversation_not_found',
-				'Conversation not found.'
-			);
-		}
-
-		$priority = sanitize_key( $priority );
-
-		if (
-			! in_array(
-				$priority,
-				array(
-					'low',
-					'normal',
-					'high',
-					'urgent',
-				),
-				true
-			)
-		) {
-			$priority = 'normal';
-		}
-
-		$pending = array(
-			'subject'  => sanitize_text_field( $subject ),
-			'summary'  => sanitize_textarea_field( $summary ),
-			'priority' => $priority,
-			'reason'   => sanitize_textarea_field( $reason ),
-		);
-
-		$summary_data = self::get_summary_data(
-			$conversation
-		);
-
-		$summary_data['pending_sensitive_escalation'] = $pending;
-
-		return self::save_summary_data(
-			$conversation_id,
-			$summary_data
+	if ( $conversation_id < 1 ) {
+		return new WP_Error(
+			'invalid_conversation',
+			'Invalid conversation.'
 		);
 	}
 
+	$conversation = self::get_by_id(
+		$conversation_id
+	);
+
+	if ( ! $conversation ) {
+		return new WP_Error(
+			'conversation_not_found',
+			'Conversation not found.'
+		);
+	}
+
+	$priority = sanitize_key( $priority );
+
+	if (
+		! in_array(
+			$priority,
+			array(
+				'low',
+				'normal',
+				'high',
+				'urgent',
+			),
+			true
+		)
+	) {
+		$priority = 'normal';
+	}
+
+	$pending = array(
+		'subject'   => sanitize_text_field( $subject ),
+		'summary'   => sanitize_textarea_field( $summary ),
+		'priority'  => $priority,
+		'reason'    => sanitize_textarea_field( $reason ),
+		'confirmed' => (bool) $confirmed,
+	);
+
+	$summary_data = self::get_summary_data(
+		$conversation
+	);
+
+	$summary_data['pending_sensitive_escalation'] = $pending;
+
+	return self::save_summary_data(
+		$conversation_id,
+		$summary_data
+	);
+}
 	/**
 	 * Get a pending sensitive escalation request.
 	 *
