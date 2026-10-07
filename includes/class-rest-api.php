@@ -28,10 +28,7 @@ class WP_RapidRescue_Chat_REST_API {
 			'/chat',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array(
-					__CLASS__,
-					'chat',
-				),
+				'callback'            => array( __CLASS__, 'chat' ),
 				'permission_callback' => '__return_true',
 				'args'                => array(
 					'message' => array(
@@ -97,10 +94,10 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * Identify customer information from the current message.
+		 * Extract identity from the current message.
 		 *
-		 * Email is an identifier only. It does not by itself authorize
-		 * access to private ticket or account information.
+		 * Email identifies a customer record but is not by itself
+		 * authentication for private ticket information.
 		 */
 		$identity =
 			WP_RapidRescue_Chat_Customer::extract_identity(
@@ -117,8 +114,10 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * The session is used only for conversational continuity.
-		 * Ticket access is verified against database records.
+		 * Get or create the current conversation.
+		 *
+		 * The browser session maintains conversation continuity only.
+		 * Ticket authorization comes from the database.
 		 */
 		$conversation =
 			WP_RapidRescue_Chat_Conversation::get_or_create(
@@ -135,7 +134,7 @@ class WP_RapidRescue_Chat_REST_API {
 		);
 
 		/*
-		 * Save the customer's message first.
+		 * Save the customer's message.
 		 */
 		$saved_message =
 			WP_RapidRescue_Chat_Conversation::add_message(
@@ -149,10 +148,10 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * Resolve explicit ticket references.
+		 * Resolve an explicit ticket reference.
 		 *
-		 * This is intentionally database-based. A ticket number by
-		 * itself is never sufficient for private ticket information.
+		 * Ticket-specific access requires:
+		 * ticket number + matching customer email.
 		 */
 		$ticket_lookup =
 			self::resolve_explicit_ticket_reference(
@@ -161,8 +160,8 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		/*
-		 * If a ticket was verified, persist it as the active verified
-		 * ticket for this conversation.
+		 * A successfully verified explicit ticket becomes the
+		 * active ticket for this conversation.
 		 */
 		if (
 			! empty( $ticket_lookup['ticket'] ) &&
@@ -177,40 +176,44 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * If there was no explicit ticket number in this message,
-		 * retrieve the previously verified active ticket.
-		 *
-		 * This is conversational continuity, not the original
-		 * authentication mechanism.
+		 * If no explicit ticket was supplied, retrieve the previously
+		 * verified active ticket.
 		 */
-		if (
-			empty( $ticket_lookup['ticket'] ) &&
-			absint( $customer_id ) > 0
-		) {
+		if ( empty( $ticket_lookup['ticket'] ) ) {
 
-			$active_state =
-				WP_RapidRescue_Chat_Conversation::get_active_ticket_state(
+			$active_ticket_key =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+					$conversation_id
+				);
+
+			$active_ticket_customer_id =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_customer_id(
 					$conversation_id
 				);
 
 			if (
-				! empty( $active_state['verified'] ) &&
-				absint(
-					$active_state['customer_id']
-				) === absint( $customer_id ) &&
-				! empty( $active_state['ticket_key'] )
+				'' !== $active_ticket_key &&
+				(
+					absint( $active_ticket_customer_id ) < 1 ||
+					(
+						absint( $customer_id ) > 0 &&
+						absint(
+							$active_ticket_customer_id
+						) === absint( $customer_id )
+					)
+				)
 			) {
 
 				$active_ticket =
 					WP_RapidRescue_Chat_Ticket::get_by_key(
-						$active_state['ticket_key']
+						$active_ticket_key
 					);
 
 				if (
 					$active_ticket &&
-					absint(
-						$active_ticket->customer_id
-					) === absint( $customer_id )
+					self::ticket_is_active(
+						$active_ticket
+					)
 				) {
 
 					$ticket_lookup['ticket'] =
@@ -229,14 +232,10 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * Build ticket context.
+		 * Only verified ticket context is sent to the AI.
 		 *
-		 * IMPORTANT:
-		 * We do NOT automatically expose every ticket belonging to a
-		 * customer just because their email was supplied.
-		 *
-		 * Only the explicitly verified ticket or previously verified
-		 * active ticket is sent to the AI.
+		 * We deliberately do NOT send all tickets belonging to the
+		 * customer merely because an email address was supplied.
 		 */
 		$ticket_context = array();
 
@@ -258,27 +257,90 @@ class WP_RapidRescue_Chat_REST_API {
 		) {
 
 			/*
-			 * Do not tell the AI whether the ticket exists.
-			 * It only needs to know that verification is required.
+			 * Give the AI only a privacy-safe verification result.
+			 * Never reveal whether another customer's ticket exists.
 			 */
 			$ticket_context[] = array(
-				'ticket_key'         => '',
+				'ticket_key'         => $ticket_lookup['ticket_key'],
+				'lookup_status'      => 'not_verified',
+				'explicit_reference' => true,
 				'subject'            => '',
 				'status'             => '',
 				'priority'           => '',
 				'summary'            => '',
-				'explicit_reference' => true,
-				'lookup_status'      => 'verification_required',
 			);
 		}
 
-		/*
-		 * Include recent conversation context.
-		 */
 		$history =
 			WP_RapidRescue_Chat_Conversation::get_recent_messages(
 				$conversation_id
 			);
+
+		/*
+		 * Check whether there is already a pending sensitive
+		 * escalation request.
+		 */
+		$pending_escalation =
+			WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
+				$conversation_id
+			);
+
+		/*
+		 * Handle a deterministic confirmation before asking the AI
+		 * to classify the message.
+		 *
+		 * This prevents the exact "yes" -> "please confirm again"
+		 * loop found during testing.
+		 */
+		if (
+			$pending_escalation &&
+			self::is_ticket_confirmation_message( $message )
+		) {
+
+			return self::create_pending_ticket_response(
+				$conversation_id,
+				$customer_id,
+				$pending_escalation
+			);
+		}
+
+		/*
+		 * Handle an explicit cancellation of a pending request.
+		 */
+		if (
+			$pending_escalation &&
+			self::is_ticket_cancellation_message( $message )
+		) {
+
+			WP_RapidRescue_Chat_Conversation::clear_pending_sensitive_escalation(
+				$conversation_id
+			);
+
+			$assistant_text =
+				'No problem. I will not create the support ticket.';
+
+			WP_RapidRescue_Chat_Conversation::add_message(
+				$conversation_id,
+				'assistant',
+				$assistant_text
+			);
+
+			return rest_ensure_response(
+				array(
+					'success' => true,
+					'data'    => array(
+						'conversation_id' => $conversation_id,
+						'customer_id'     => $customer_id
+							? absint( $customer_id )
+							: null,
+						'text'            => $assistant_text,
+						'escalated'       => false,
+						'ticket_id'       => null,
+						'ticket_key'      => null,
+					),
+				)
+			);
+		}
 
 		$response =
 			WP_RapidRescue_Chat_AI::respond(
@@ -300,110 +362,32 @@ class WP_RapidRescue_Chat_REST_API {
 		$ticket_key = null;
 		$escalated  = false;
 
-		$action =
-			isset( $response['action'] ) &&
-			is_array( $response['action'] )
-				? $response['action']
-				: array();
+		$action = isset(
+			$response['action']
+		) &&
+			is_array(
+				$response['action']
+			)
+			? $response['action']
+			: array();
 
-		$action_type =
-			isset( $action['type'] )
-				? sanitize_key(
-					$action['type']
-				)
-				: 'none';
-
-		/*
-		 * Sensitive ticket offer.
-		 *
-		 * No ticket is created here.
-		 */
-		if (
-			'offer_sensitive_ticket' ===
-			$action_type
-		) {
-
-			if ( absint( $customer_id ) < 1 ) {
-
-				$assistant_text =
-					'Before I can offer a support ticket for this request, I need your email address so our support team knows who to follow up with.';
-
-			} else {
-
-				$subject =
-					isset( $action['subject'] )
-						? sanitize_text_field(
-							$action['subject']
-						)
-						: '';
-
-				$summary =
-					isset( $action['summary'] )
-						? sanitize_textarea_field(
-							$action['summary']
-						)
-						: '';
-
-				$priority =
-					isset( $action['priority'] )
-						? sanitize_key(
-							$action['priority']
-						)
-						: 'normal';
-
-				$pending =
-					WP_RapidRescue_Chat_Conversation::set_pending_escalation(
-						$conversation_id,
-						$subject,
-						$summary,
-						$priority
-					);
-
-				if ( is_wp_error( $pending ) ) {
-
-					$assistant_text =
-						'I\'m sorry, but I couldn\'t prepare the support request right now. No ticket has been created.';
-
-				} else {
-
-					/*
-					 * Make absolutely sure the response does not claim
-					 * that the ticket already exists.
-					 */
-					if ( '' === trim( $assistant_text ) ) {
-						$assistant_text =
-							'I can have a human support specialist review this request. Would you like me to create a support ticket?';
-					}
-				}
-			}
-		}
-
-		/*
-		 * Customer declined a pending sensitive ticket.
-		 */
-		elseif (
-			'cancel_sensitive_ticket' ===
-			$action_type
-		) {
-
-			WP_RapidRescue_Chat_Conversation::clear_pending_escalation(
-				$conversation_id
-			);
-
-			$assistant_text =
-				'No problem. I won\'t create a support ticket. I can still help with general information or troubleshooting.';
-		}
+		$action_type = isset(
+			$action['type']
+		)
+			? sanitize_key(
+				$action['type']
+			)
+			: 'none';
 
 		/*
 		 * Existing verified ticket.
 		 */
-		elseif (
-			'existing_ticket' ===
-			$action_type
-		) {
+		if ( 'existing_ticket' === $action_type ) {
 
 			$requested_ticket_key =
-				isset( $action['ticket_key'] )
+				isset(
+					$action['ticket_key']
+				)
 					? strtoupper(
 						sanitize_text_field(
 							$action['ticket_key']
@@ -413,30 +397,16 @@ class WP_RapidRescue_Chat_REST_API {
 
 			$verified_ticket = null;
 
-			/*
-			 * Only allow an exact match to the PHP-verified ticket.
-			 */
 			if (
 				'' !== $requested_ticket_key &&
 				! empty( $ticket_lookup['ticket'] ) &&
-				! empty(
-					$ticket_lookup['customer_verified']
-				) &&
+				! empty( $ticket_lookup['customer_verified'] ) &&
 				$requested_ticket_key ===
 					$ticket_lookup['ticket']->ticket_key
 			) {
 
-				$candidate_ticket =
+				$verified_ticket =
 					$ticket_lookup['ticket'];
-
-				if (
-					absint(
-						$candidate_ticket->customer_id
-					) === absint( $customer_id )
-				) {
-					$verified_ticket =
-						$candidate_ticket;
-				}
 			}
 
 			if (
@@ -470,139 +440,143 @@ class WP_RapidRescue_Chat_REST_API {
 			} else {
 
 				$assistant_text =
-					'I couldn\'t safely match this request to a verified active support ticket.';
+					'I couldn\'t safely match this request to an active support ticket. Please provide the ticket number and the email address associated with that ticket.';
 			}
 		}
 
 		/*
-		 * Create ticket.
+		 * Offer to create a new sensitive support ticket.
 		 *
-		 * PHP only permits this when there is a pending escalation
-		 * that the customer has explicitly confirmed through the AI
-		 * conversation.
+		 * IMPORTANT:
+		 * No ticket is created here.
+		 */
+		elseif (
+			'offer_sensitive_ticket' ===
+			$action_type
+		) {
+
+			if ( absint( $customer_id ) < 1 ) {
+
+				$assistant_text =
+					'Before I prepare the support ticket, I need your email address so our support team knows how to follow up with you.';
+
+			} else {
+
+				$subject =
+					isset(
+						$action['subject']
+					)
+						? sanitize_text_field(
+							$action['subject']
+						)
+						: 'Customer support request';
+
+				$summary =
+					isset(
+						$action['summary']
+					)
+						? sanitize_textarea_field(
+							$action['summary']
+						)
+						: '';
+
+				$priority =
+					isset(
+						$action['priority']
+					)
+						? sanitize_key(
+							$action['priority']
+						)
+						: 'normal';
+
+				$reason =
+					isset(
+						$action['reason']
+					)
+						? sanitize_textarea_field(
+							$action['reason']
+						)
+						: '';
+
+				$pending_result =
+					WP_RapidRescue_Chat_Conversation::set_pending_sensitive_escalation(
+						$conversation_id,
+						$subject,
+						$summary,
+						$priority,
+						$reason
+					);
+
+				if ( is_wp_error( $pending_result ) ) {
+
+					$assistant_text =
+						'I\'m sorry, but I couldn\'t prepare the support request right now. No ticket has been created.';
+
+				} else {
+
+					/*
+					 * Keep the customer-facing response focused.
+					 * The application now has a real pending request.
+					 */
+					$assistant_text =
+						'I can prepare a support ticket for a human specialist to review your request. Would you like me to create it?';
+				}
+			}
+		}
+
+		/*
+		 * AI-created ticket action is accepted only when a pending
+		 * sensitive escalation already exists.
+		 *
+		 * This is a second safety gate. The application never creates
+		 * a ticket from an arbitrary AI create_ticket action.
 		 */
 		elseif (
 			'create_ticket' ===
 			$action_type
 		) {
 
-			$pending =
-				WP_RapidRescue_Chat_Conversation::get_pending_escalation(
-					$conversation_id
-				);
+			if ( ! $pending_escalation ) {
 
-			if ( empty( $pending ) ) {
-
-				/*
-				 * This prevents the AI from bypassing the confirmation
-				 * workflow by simply returning create_ticket.
-				 */
 				$assistant_text =
 					'I can prepare a support request for you, but I need your confirmation before creating the ticket. Would you like me to create one?';
 
-				$ticket_id  = null;
-				$ticket_key = null;
-				$escalated  = false;
-
-			} elseif (
-				absint( $customer_id ) < 1
-			) {
+			} elseif ( absint( $customer_id ) < 1 ) {
 
 				$assistant_text =
 					'Before I create the support ticket, I need your email address so our support team knows how to follow up with you.';
 
-				$ticket_id  = null;
-				$ticket_key = null;
-				$escalated  = false;
-
 			} else {
 
-				/*
-				 * IMPORTANT:
-				 *
-				 * Do not trust subject/summary/priority from the
-				 * create_ticket AI action here.
-				 *
-				 * PHP uses the previously stored pending escalation.
-				 */
-				$ticket_result =
-					WP_RapidRescue_Chat_Escalation::create_ticket(
+				$ticket_response =
+					self::create_pending_ticket_response(
 						$conversation_id,
 						$customer_id,
-						$pending['subject'],
-						$pending['summary'],
-						$pending['priority']
+						$pending_escalation
 					);
 
-				if ( is_wp_error( $ticket_result ) ) {
-
-					$assistant_text =
-						'I\'m sorry, but I couldn\'t create the support request just now. No ticket has been created. Please try again in a moment.';
-
-					$ticket_id  = null;
-					$ticket_key = null;
-					$escalated  = false;
-
-				} elseif (
-					! empty(
-						$ticket_result['ticket_key']
-					)
-				) {
-
-					$ticket_id =
-						! empty(
-							$ticket_result['ticket_id']
-						)
-							? absint(
-								$ticket_result['ticket_id']
-							)
-							: null;
-
-					$ticket_key =
-						sanitize_text_field(
-							$ticket_result['ticket_key']
-						);
-
-					$escalated = true;
-
-					WP_RapidRescue_Chat_Conversation::clear_pending_escalation(
-						$conversation_id
-					);
-
-					WP_RapidRescue_Chat_Conversation::set_active_ticket(
-						$conversation_id,
-						$ticket_key,
-						$customer_id
-					);
-
-					$confirmation =
-						WP_RapidRescue_Chat_Escalation::get_confirmation_message(
-							$ticket_result
-						);
-
-					if (
-						'' !== trim(
-							$confirmation
-						)
-					) {
-						$assistant_text =
-							$confirmation;
-					}
-
-				} else {
-
-					$assistant_text =
-						'I\'m sorry, but the support request could not be confirmed. No ticket has been created.';
-
-					$ticket_id  = null;
-					$ticket_key = null;
-					$escalated  = false;
-				}
+				return $ticket_response;
 			}
 		}
 
 		/*
-		 * Save the final assistant response.
+		 * Explicit cancellation requested by AI.
+		 */
+		elseif (
+			'cancel_sensitive_ticket' ===
+			$action_type
+		) {
+
+			WP_RapidRescue_Chat_Conversation::clear_pending_sensitive_escalation(
+				$conversation_id
+			);
+
+			$assistant_text =
+				'No problem. I will not create the support ticket.';
+		}
+
+		/*
+		 * Save final assistant response.
 		 */
 		if ( '' !== trim( $assistant_text ) ) {
 
@@ -618,12 +592,9 @@ class WP_RapidRescue_Chat_REST_API {
 				'success' => true,
 				'data'    => array(
 					'conversation_id' => $conversation_id,
-					'customer_id'     =>
-						$customer_id
-							? absint(
-								$customer_id
-							)
-							: null,
+					'customer_id'     => $customer_id
+						? absint( $customer_id )
+						: null,
 					'text'            => $assistant_text,
 					'escalated'       => $escalated,
 					'ticket_id'       => $ticket_id,
@@ -636,13 +607,12 @@ class WP_RapidRescue_Chat_REST_API {
 	/**
 	 * Resolve an explicit ticket reference.
 	 *
-	 * IMPORTANT:
-	 * The ticket number is checked against the database, but private
-	 * ticket information is only exposed after the email/customer
-	 * relationship has been verified.
+	 * Ticket-specific access requires both:
+	 * - a ticket number
+	 * - matching customer email identity
 	 *
 	 * @param string   $message Customer message.
-	 * @param int|null $customer_id Customer ID.
+	 * @param int|null $customer_id Identified customer ID.
 	 * @return array
 	 */
 	private static function resolve_explicit_ticket_reference(
@@ -668,7 +638,8 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * No customer identity means the ticket cannot be verified.
+		 * A ticket number without a customer email must never
+		 * expose ticket information.
 		 */
 		if ( absint( $customer_id ) < 1 ) {
 
@@ -683,97 +654,63 @@ class WP_RapidRescue_Chat_REST_API {
 				$ticket_key
 			);
 
-		/*
-		 * Do not expose whether the ticket exists.
-		 */
 		if ( ! $ticket ) {
 
+			/*
+			 * Keep this generic. The customer should not be given
+			 * sensitive information about ticket existence.
+			 */
 			$result['status'] =
-				'verification_failed';
+				'not_verified';
 
 			return $result;
 		}
 
 		/*
-		 * Normal customer-owned ticket.
+		 * Customer-owned ticket.
 		 */
-		if (
-			absint(
-				$ticket->customer_id
-			) > 0
-		) {
+		if ( absint( $ticket->customer_id ) > 0 ) {
 
 			if (
 				absint(
 					$ticket->customer_id
-				) === absint( $customer_id )
+				) === absint(
+					$customer_id
+				)
 			) {
 
-				$result['customer_verified'] = true;
-				$result['status']             = 'verified';
-				$result['ticket']             = $ticket;
+				$result['customer_verified'] =
+					true;
+
+				$result['status'] =
+					'verified';
+
+				$result['ticket'] =
+					$ticket;
 
 				return $result;
 			}
 
-			/*
-			 * Wrong email/customer.
-			 *
-			 * Do not reveal anything about the ticket.
-			 */
 			$result['status'] =
-				'verification_failed';
+				'not_verified';
 
 			return $result;
 		}
 
 		/*
-		 * Legacy anonymous ticket.
+		 * Legacy anonymous tickets are NOT automatically disclosed.
 		 *
-		 * Because the customer has supplied BOTH:
-		 * - an email-derived customer identity
-		 * - the exact ticket number
-		 *
-		 * PHP may claim the legacy anonymous ticket for that customer.
-		 *
-		 * Future tickets will always have a customer_id.
+		 * They must be associated with a customer before they can
+		 * be treated as customer-owned ticket records.
 		 */
-		$assigned =
-			WP_RapidRescue_Chat_Ticket::assign_customer(
-				$ticket->id,
-				$customer_id
-			);
-
-		if ( is_wp_error( $assigned ) ) {
-
-			$result['status'] =
-				'verification_failed';
-
-			return $result;
-		}
-
-		$ticket =
-			WP_RapidRescue_Chat_Ticket::get_by_id(
-				$ticket->id
-			);
-
-		if ( ! $ticket ) {
-
-			$result['status'] =
-				'verification_failed';
-
-			return $result;
-		}
-
-		$result['customer_verified'] = true;
-		$result['status']             = 'verified';
-		$result['ticket']             = $ticket;
+		$result['status'] =
+			'not_verified';
 
 		return $result;
 	}
 
 	/**
-	 * Convert a verified ticket to limited AI context.
+	 * Convert a verified ticket into limited AI context.
 	 *
 	 * @param object $ticket Ticket object.
 	 * @param bool   $explicit_reference Explicitly referenced.
@@ -834,6 +771,324 @@ class WP_RapidRescue_Chat_REST_API {
 				'waiting_customer',
 			),
 			true
+		);
+	}
+
+	/**
+	 * Determine whether a customer message explicitly confirms
+	 * creation of a pending ticket.
+	 *
+	 * @param string $message Customer message.
+	 * @return bool
+	 */
+	private static function is_ticket_confirmation_message(
+		$message
+	) {
+
+		$message = strtolower(
+			trim(
+				sanitize_textarea_field(
+					$message
+				)
+			)
+		);
+
+		$message = preg_replace(
+			'/[^\p{L}\p{N}\s]/u',
+			' ',
+			$message
+		);
+
+		$message = trim(
+			preg_replace(
+				'/\s+/',
+				' ',
+				$message
+			)
+		);
+
+		$confirmations = array(
+			'yes',
+			'yes create',
+			'yes create it',
+			'yes create a ticket',
+			'create it',
+			'create the ticket',
+			'create ticket',
+			'please create it',
+			'please create the ticket',
+			'please create a ticket',
+			'confirm',
+			'i confirm',
+			'i agree',
+			'go ahead',
+			'go ahead and create it',
+			'go ahead and create the ticket',
+			'go ahead create it',
+			'do it',
+		);
+
+		return in_array(
+			$message,
+			$confirmations,
+			true
+		);
+	}
+
+	/**
+	 * Determine whether a customer cancelled a pending ticket.
+	 *
+	 * @param string $message Customer message.
+	 * @return bool
+	 */
+	private static function is_ticket_cancellation_message(
+		$message
+	) {
+
+		$message = strtolower(
+			trim(
+				sanitize_textarea_field(
+					$message
+				)
+			)
+		);
+
+		$message = preg_replace(
+			'/[^\p{L}\p{N}\s]/u',
+			' ',
+			$message
+		);
+
+		$message = trim(
+			preg_replace(
+				'/\s+/',
+				' ',
+				$message
+			)
+		);
+
+		$cancellations = array(
+			'no',
+			'no thanks',
+			'cancel',
+			'cancel it',
+			'dont create it',
+			'do not create it',
+			'dont create the ticket',
+			'do not create the ticket',
+			'i changed my mind',
+			'never mind',
+			'nevermind',
+		);
+
+		return in_array(
+			$message,
+			$cancellations,
+			true
+		);
+	}
+
+	/**
+	 * Create the ticket stored in the pending escalation state.
+	 *
+	 * @param int   $conversation_id Conversation ID.
+	 * @param int   $customer_id Customer ID.
+	 * @param array $pending Pending escalation data.
+	 * @return WP_REST_Response
+	 */
+	private static function create_pending_ticket_response(
+		$conversation_id,
+		$customer_id,
+		$pending
+	) {
+
+		$conversation_id = absint(
+			$conversation_id
+		);
+
+		$customer_id = absint(
+			$customer_id
+		);
+
+		if (
+			$conversation_id < 1 ||
+			$customer_id < 1 ||
+			! is_array( $pending )
+		) {
+
+			$assistant_text =
+				'Before I create the support ticket, I need your email address so our support team knows how to follow up with you.';
+
+			WP_RapidRescue_Chat_Conversation::add_message(
+				$conversation_id,
+				'assistant',
+				$assistant_text
+			);
+
+			return rest_ensure_response(
+				array(
+					'success' => true,
+					'data'    => array(
+						'conversation_id' => $conversation_id,
+						'customer_id'     => $customer_id
+							? $customer_id
+							: null,
+						'text'            => $assistant_text,
+						'escalated'       => false,
+						'ticket_id'       => null,
+						'ticket_key'      => null,
+					),
+				)
+			);
+		}
+
+		$subject = isset(
+			$pending['subject']
+		)
+			? sanitize_text_field(
+				$pending['subject']
+			)
+			: 'Customer support request';
+
+		$summary = isset(
+			$pending['summary']
+		)
+			? sanitize_textarea_field(
+				$pending['summary']
+			)
+			: '';
+
+		$priority = isset(
+			$pending['priority']
+		)
+			? sanitize_key(
+				$pending['priority']
+			)
+			: 'normal';
+
+		$ticket_result =
+			WP_RapidRescue_Chat_Escalation::create_ticket(
+				$conversation_id,
+				$customer_id,
+				$subject,
+				$summary,
+				$priority
+			);
+
+		if ( is_wp_error( $ticket_result ) ) {
+
+			$assistant_text =
+				'I\'m sorry, but I couldn\'t create the support request just now. No ticket has been created. Please try again in a moment.';
+
+			WP_RapidRescue_Chat_Conversation::add_message(
+				$conversation_id,
+				'assistant',
+				$assistant_text
+			);
+
+			return rest_ensure_response(
+				array(
+					'success' => true,
+					'data'    => array(
+						'conversation_id' => $conversation_id,
+						'customer_id'     => $customer_id,
+						'text'            => $assistant_text,
+						'escalated'       => false,
+						'ticket_id'       => null,
+						'ticket_key'      => null,
+					),
+				)
+			);
+		}
+
+		if (
+			empty(
+				$ticket_result['ticket_key']
+			)
+		) {
+
+			$assistant_text =
+				'I\'m sorry, but the support request could not be confirmed. No ticket has been created.';
+
+			WP_RapidRescue_Chat_Conversation::add_message(
+				$conversation_id,
+				'assistant',
+				$assistant_text
+			);
+
+			return rest_ensure_response(
+				array(
+					'success' => true,
+					'data'    => array(
+						'conversation_id' => $conversation_id,
+						'customer_id'     => $customer_id,
+						'text'            => $assistant_text,
+						'escalated'       => false,
+						'ticket_id'       => null,
+						'ticket_key'      => null,
+					),
+				)
+			);
+		}
+
+		$ticket_id =
+			! empty(
+				$ticket_result['ticket_id']
+			)
+				? absint(
+					$ticket_result['ticket_id']
+				)
+				: null;
+
+		$ticket_key =
+			sanitize_text_field(
+				$ticket_result['ticket_key']
+			);
+
+		/*
+		 * The ticket now exists and has been confirmed by PHP.
+		 */
+		WP_RapidRescue_Chat_Conversation::clear_pending_sensitive_escalation(
+			$conversation_id
+		);
+
+		WP_RapidRescue_Chat_Conversation::set_active_ticket(
+			$conversation_id,
+			$ticket_key,
+			$customer_id
+		);
+
+		$confirmation =
+			WP_RapidRescue_Chat_Escalation::get_confirmation_message(
+				$ticket_result
+			);
+
+		if ( '' === trim( $confirmation ) ) {
+
+			$confirmation = sprintf(
+				'Your support request has been escalated to our support team. Your ticket number is %s.',
+				$ticket_key
+			);
+		}
+
+		WP_RapidRescue_Chat_Conversation::add_message(
+			$conversation_id,
+			'assistant',
+			$confirmation
+		);
+
+		return rest_ensure_response(
+			array(
+				'success' => true,
+				'data'    => array(
+					'conversation_id' => $conversation_id,
+					'customer_id'     => $customer_id,
+					'text'            => $confirmation,
+					'escalated'       => true,
+					'ticket_id'       => $ticket_id,
+					'ticket_key'      => $ticket_key,
+				),
+			)
 		);
 	}
 }
