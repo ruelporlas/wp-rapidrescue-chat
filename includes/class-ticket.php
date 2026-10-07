@@ -29,12 +29,6 @@ class WP_RapidRescue_Chat_Ticket {
 	/**
 	 * Extract a ticket key from a customer message.
 	 *
-	 * Recognizes references such as:
-	 * RR-00001
-	 * rr-00001
-	 * My ticket is RR-00001
-	 * ticket number: RR-00001
-	 *
 	 * @param string $message Customer message.
 	 * @return string
 	 */
@@ -182,12 +176,12 @@ class WP_RapidRescue_Chat_Ticket {
 				'ticket_key'      => '',
 				'customer_id'     => $customer_id,
 				'conversation_id' => $conversation_id,
-				'subject'         => $subject,
-				'summary'         => $summary,
-				'status'          => 'open',
-				'priority'        => $priority,
-				'created_at'      => $now,
-				'updated_at'      => $now,
+				'subject'        => $subject,
+				'summary'        => $summary,
+				'status'         => 'open',
+				'priority'       => $priority,
+				'created_at'     => $now,
+				'updated_at'     => $now,
 			),
 			array(
 				'%s',
@@ -304,10 +298,6 @@ class WP_RapidRescue_Chat_Ticket {
 			}
 		}
 
-		/*
-		 * Only use the old duplicate protection when the caller
-		 * has NOT explicitly identified this as a new issue.
-		 */
 		if ( ! $allow_new_issue ) {
 
 			$existing_tickets =
@@ -447,6 +437,93 @@ class WP_RapidRescue_Chat_Ticket {
 				$ticket_key
 			)
 		);
+	}
+
+	/**
+	 * Assign an anonymous ticket to a verified customer.
+	 *
+	 * This is intended for legacy tickets that were created before
+	 * customer identity was required.
+	 *
+	 * @param int $ticket_id Ticket ID.
+	 * @param int $customer_id Customer ID.
+	 * @return bool|WP_Error
+	 */
+	public static function assign_customer(
+		$ticket_id,
+		$customer_id
+	) {
+
+		global $wpdb;
+
+		$ticket_id  = absint( $ticket_id );
+		$customer_id = absint( $customer_id );
+
+		if ( $ticket_id < 1 ) {
+			return new WP_Error(
+				'invalid_ticket',
+				'Invalid ticket.'
+			);
+		}
+
+		if ( $customer_id < 1 ) {
+			return new WP_Error(
+				'invalid_customer',
+				'Invalid customer.'
+			);
+		}
+
+		$ticket = self::get_by_id(
+			$ticket_id
+		);
+
+		if ( ! $ticket ) {
+			return new WP_Error(
+				'ticket_not_found',
+				'Ticket not found.'
+			);
+		}
+
+		if ( absint( $ticket->customer_id ) > 0 ) {
+			if (
+				absint( $ticket->customer_id ) ===
+				$customer_id
+			) {
+				return true;
+			}
+
+			return new WP_Error(
+				'ticket_customer_conflict',
+				'This ticket is already associated with another customer.'
+			);
+		}
+
+		$result = $wpdb->update(
+			self::table(),
+			array(
+				'customer_id' => $customer_id,
+				'updated_at'  => current_time( 'mysql', true ),
+			),
+			array(
+				'id' => $ticket_id,
+			),
+			array(
+				'%d',
+				'%s',
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $result ) {
+			return new WP_Error(
+				'ticket_customer_update_failed',
+				'The ticket could not be associated with the customer.'
+			);
+		}
+
+		return true;
 	}
 
 	/**
@@ -607,7 +684,7 @@ class WP_RapidRescue_Chat_Ticket {
 
 		if ( '' !== trim( $summary ) ) {
 			$data['summary'] = $summary;
-			$formats[]       = '%s';
+			$formats[]        = '%s';
 		}
 
 		$status = sanitize_key(

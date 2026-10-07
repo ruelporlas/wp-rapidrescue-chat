@@ -329,19 +329,17 @@ class WP_RapidRescue_Chat_Conversation {
 	}
 
 	/**
-	 * Set the active ticket for a conversation.
+	 * Set the active verified ticket for a conversation.
 	 *
-	 * This uses the existing summary field to persist small
-	 * pieces of conversation state without requiring a new
-	 * database column.
-	 *
-	 * @param int    $conversation_id Conversation ID.
-	 * @param string $ticket_key Ticket number.
+	 * @param int      $conversation_id Conversation ID.
+	 * @param string   $ticket_key Ticket number.
+	 * @param int|null $customer_id Verified customer ID.
 	 * @return bool|WP_Error
 	 */
 	public static function set_active_ticket(
 		$conversation_id,
-		$ticket_key
+		$ticket_key,
+		$customer_id = null
 	) {
 
 		global $wpdb;
@@ -350,6 +348,7 @@ class WP_RapidRescue_Chat_Conversation {
 		$ticket_key      = strtoupper(
 			sanitize_text_field( $ticket_key )
 		);
+		$customer_id     = absint( $customer_id );
 
 		if ( $conversation_id < 1 ) {
 			return new WP_Error(
@@ -374,51 +373,29 @@ class WP_RapidRescue_Chat_Conversation {
 			);
 		}
 
-		$summary_data = array();
-
-		if ( ! empty( $conversation->summary ) ) {
-			$decoded = json_decode(
-				$conversation->summary,
-				true
-			);
-
-			if ( is_array( $decoded ) ) {
-				$summary_data = $decoded;
-			}
-		}
-
-		$summary_data['active_ticket_key'] = $ticket_key;
-
-		$result = $wpdb->update(
-			self::conversations_table(),
-			array(
-				'summary'    => wp_json_encode( $summary_data ),
-				'updated_at' => current_time( 'mysql', true ),
-			),
-			array(
-				'id' => $conversation_id,
-			),
-			array(
-				'%s',
-				'%s',
-			),
-			array(
-				'%d',
-			)
+		$summary_data = self::get_summary_data(
+			$conversation
 		);
 
-		if ( false === $result ) {
-			return new WP_Error(
-				'conversation_ticket_update_failed',
-				'The active ticket could not be saved.'
+		$summary_data['active_ticket_key'] = $ticket_key;
+		$summary_data['active_ticket_verified'] = true;
+
+		if ( $customer_id > 0 ) {
+			$summary_data['active_ticket_customer_id'] = $customer_id;
+		} else {
+			unset(
+				$summary_data['active_ticket_customer_id']
 			);
 		}
 
-		return true;
+		return self::save_summary_data(
+			$conversation_id,
+			$summary_data
+		);
 	}
 
 	/**
-	 * Get the active ticket key for a conversation.
+	 * Get the active verified ticket key.
 	 *
 	 * @param int $conversation_id Conversation ID.
 	 * @return string
@@ -433,20 +410,25 @@ class WP_RapidRescue_Chat_Conversation {
 			return '';
 		}
 
-		$conversation = self::get_by_id( $conversation_id );
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
 
-		if ( ! $conversation || empty( $conversation->summary ) ) {
+		if ( ! $conversation ) {
 			return '';
 		}
 
-		$summary_data = json_decode(
-			$conversation->summary,
-			true
+		$summary_data = self::get_summary_data(
+			$conversation
 		);
 
 		if (
-			! is_array( $summary_data ) ||
-			empty( $summary_data['active_ticket_key'] )
+			empty(
+				$summary_data['active_ticket_key']
+			) ||
+			empty(
+				$summary_data['active_ticket_verified']
+			)
 		) {
 			return '';
 		}
@@ -455,6 +437,258 @@ class WP_RapidRescue_Chat_Conversation {
 			sanitize_text_field(
 				$summary_data['active_ticket_key']
 			)
+		);
+	}
+
+	/**
+	 * Get the verified customer ID associated with the active ticket.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @return int|null
+	 */
+	public static function get_active_ticket_customer_id(
+		$conversation_id
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return null;
+		}
+
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
+
+		if ( ! $conversation ) {
+			return null;
+		}
+
+		$summary_data = self::get_summary_data(
+			$conversation
+		);
+
+		if (
+			empty(
+				$summary_data['active_ticket_verified']
+			) ||
+			empty(
+				$summary_data['active_ticket_customer_id']
+			)
+		) {
+			return null;
+		}
+
+		return absint(
+			$summary_data['active_ticket_customer_id']
+		);
+	}
+
+	/**
+	 * Set a pending sensitive escalation request.
+	 *
+	 * The ticket is NOT created here.
+	 *
+	 * @param int    $conversation_id Conversation ID.
+	 * @param string $subject Ticket subject.
+	 * @param string $summary Ticket summary.
+	 * @param string $priority Ticket priority.
+	 * @param string $reason Escalation reason.
+	 * @return bool|WP_Error
+	 */
+	public static function set_pending_sensitive_escalation(
+		$conversation_id,
+		$subject,
+		$summary,
+		$priority = 'normal',
+		$reason = ''
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return new WP_Error(
+				'invalid_conversation',
+				'Invalid conversation.'
+			);
+		}
+
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
+
+		if ( ! $conversation ) {
+			return new WP_Error(
+				'conversation_not_found',
+				'Conversation not found.'
+			);
+		}
+
+		$priority = sanitize_key( $priority );
+
+		if (
+			! in_array(
+				$priority,
+				array(
+					'low',
+					'normal',
+					'high',
+					'urgent',
+				),
+				true
+			)
+		) {
+			$priority = 'normal';
+		}
+
+		$pending = array(
+			'subject'  => sanitize_text_field( $subject ),
+			'summary'  => sanitize_textarea_field( $summary ),
+			'priority' => $priority,
+			'reason'   => sanitize_textarea_field( $reason ),
+		);
+
+		$summary_data = self::get_summary_data(
+			$conversation
+		);
+
+		$summary_data['pending_sensitive_escalation'] = $pending;
+
+		return self::save_summary_data(
+			$conversation_id,
+			$summary_data
+		);
+	}
+
+	/**
+	 * Get a pending sensitive escalation request.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @return array|null
+	 */
+	public static function get_pending_sensitive_escalation(
+		$conversation_id
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return null;
+		}
+
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
+
+		if ( ! $conversation ) {
+			return null;
+		}
+
+		$summary_data = self::get_summary_data(
+			$conversation
+		);
+
+		if (
+			empty(
+				$summary_data['pending_sensitive_escalation']
+			) ||
+			! is_array(
+				$summary_data['pending_sensitive_escalation']
+			)
+		) {
+			return null;
+		}
+
+		return $summary_data['pending_sensitive_escalation'];
+	}
+
+	/**
+	 * Clear pending sensitive escalation state.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @return bool|WP_Error
+	 */
+	public static function clear_pending_sensitive_escalation(
+		$conversation_id
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return new WP_Error(
+				'invalid_conversation',
+				'Invalid conversation.'
+			);
+		}
+
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
+
+		if ( ! $conversation ) {
+			return new WP_Error(
+				'conversation_not_found',
+				'Conversation not found.'
+			);
+		}
+
+		$summary_data = self::get_summary_data(
+			$conversation
+		);
+
+		unset(
+			$summary_data['pending_sensitive_escalation']
+		);
+
+		return self::save_summary_data(
+			$conversation_id,
+			$summary_data
+		);
+	}
+
+	/**
+	 * Clear the active ticket state.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @return bool|WP_Error
+	 */
+	public static function clear_active_ticket(
+		$conversation_id
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return new WP_Error(
+				'invalid_conversation',
+				'Invalid conversation.'
+			);
+		}
+
+		$conversation = self::get_by_id(
+			$conversation_id
+		);
+
+		if ( ! $conversation ) {
+			return new WP_Error(
+				'conversation_not_found',
+				'Conversation not found.'
+			);
+		}
+
+		$summary_data = self::get_summary_data(
+			$conversation
+		);
+
+		unset(
+			$summary_data['active_ticket_key'],
+			$summary_data['active_ticket_verified'],
+			$summary_data['active_ticket_customer_id']
+		);
+
+		return self::save_summary_data(
+			$conversation_id,
+			$summary_data
 		);
 	}
 
@@ -485,11 +719,13 @@ class WP_RapidRescue_Chat_Conversation {
 			);
 		}
 
-		if ( ! in_array(
-			$role,
-			array( 'user', 'assistant' ),
-			true
-		) ) {
+		if (
+			! in_array(
+				$role,
+				array( 'user', 'assistant' ),
+				true
+			)
+		) {
 			return new WP_Error(
 				'invalid_message_role',
 				'Invalid message role.'
@@ -514,7 +750,10 @@ class WP_RapidRescue_Chat_Conversation {
 			);
 		}
 
-		$now = current_time( 'mysql', true );
+		$now = current_time(
+			'mysql',
+			true
+		);
 
 		$result = $wpdb->insert(
 			self::messages_table(),
@@ -568,7 +807,9 @@ class WP_RapidRescue_Chat_Conversation {
 
 		global $wpdb;
 
-		$conversation_id = absint( $conversation_id );
+		$conversation_id = absint(
+			$conversation_id
+		);
 
 		if ( $conversation_id < 1 ) {
 			return null;
@@ -578,7 +819,10 @@ class WP_RapidRescue_Chat_Conversation {
 
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE id = %d LIMIT 1",
+				"SELECT *
+				FROM {$table}
+				WHERE id = %d
+				LIMIT 1",
 				$conversation_id
 			)
 		);
@@ -598,8 +842,13 @@ class WP_RapidRescue_Chat_Conversation {
 
 		global $wpdb;
 
-		$conversation_id = absint( $conversation_id );
-		$limit           = absint( $limit );
+		$conversation_id = absint(
+			$conversation_id
+		);
+
+		$limit = absint(
+			$limit
+		);
 
 		if ( $conversation_id < 1 ) {
 			return array();
@@ -632,5 +881,74 @@ class WP_RapidRescue_Chat_Conversation {
 		}
 
 		return array_reverse( $messages );
+	}
+
+	/**
+	 * Decode conversation summary state.
+	 *
+	 * @param object $conversation Conversation object.
+	 * @return array
+	 */
+	private static function get_summary_data(
+		$conversation
+	) {
+
+		if (
+			! $conversation ||
+			empty( $conversation->summary )
+		) {
+			return array();
+		}
+
+		$decoded = json_decode(
+			$conversation->summary,
+			true
+		);
+
+		return is_array( $decoded )
+			? $decoded
+			: array();
+	}
+
+	/**
+	 * Save conversation summary state.
+	 *
+	 * @param int   $conversation_id Conversation ID.
+	 * @param array $summary_data Summary data.
+	 * @return bool|WP_Error
+	 */
+	private static function save_summary_data(
+		$conversation_id,
+		$summary_data
+	) {
+
+		global $wpdb;
+
+		$result = $wpdb->update(
+			self::conversations_table(),
+			array(
+				'summary'    => wp_json_encode( $summary_data ),
+				'updated_at' => current_time( 'mysql', true ),
+			),
+			array(
+				'id' => absint( $conversation_id ),
+			),
+			array(
+				'%s',
+				'%s',
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $result ) {
+			return new WP_Error(
+				'conversation_state_update_failed',
+				'Conversation state could not be saved.'
+			);
+		}
+
+		return true;
 	}
 }
