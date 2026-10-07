@@ -27,6 +27,43 @@ class WP_RapidRescue_Chat_Ticket {
 	}
 
 	/**
+	 * Extract a ticket key from a customer message.
+	 *
+	 * Recognizes references such as:
+	 * RR-00001
+	 * rr-00001
+	 * My ticket is RR-00001
+	 * ticket number: RR-00001
+	 *
+	 * @param string $message Customer message.
+	 * @return string
+	 */
+	public static function extract_ticket_key( $message ) {
+
+		$message = (string) $message;
+
+		if ( '' === trim( $message ) ) {
+			return '';
+		}
+
+		if (
+			preg_match(
+				'/\bRR-\d{1,10}\b/i',
+				$message,
+				$matches
+			)
+		) {
+			return strtoupper(
+				sanitize_text_field(
+					$matches[0]
+				)
+			);
+		}
+
+		return '';
+	}
+
+	/**
 	 * Create or update the tickets database table.
 	 *
 	 * @return void
@@ -145,8 +182,8 @@ class WP_RapidRescue_Chat_Ticket {
 				'ticket_key'      => '',
 				'customer_id'     => $customer_id,
 				'conversation_id' => $conversation_id,
-				'subject'        => $subject,
-				'summary'        => $summary,
+				'subject'         => $subject,
+				'summary'         => $summary,
 				'status'          => 'open',
 				'priority'        => $priority,
 				'created_at'      => $now,
