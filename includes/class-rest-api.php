@@ -93,8 +93,8 @@ class WP_RapidRescue_Chat_REST_API {
 		 * Identify customer information from the current message.
 		 *
 		 * Email addresses are checked against the WordPress customer
-		 * database. The browser session is not used as the source
-		 * of customer identity.
+		 * database. The browser session is not the source of customer
+		 * identity.
 		 */
 		$identity =
 			WP_RapidRescue_Chat_Customer::extract_identity(
@@ -113,9 +113,8 @@ class WP_RapidRescue_Chat_REST_API {
 		/*
 		 * Get or create the conversation.
 		 *
-		 * The session ID is used only to maintain the current
-		 * conversation. It is not used as the authority for
-		 * identifying an existing ticket.
+		 * The session ID maintains the current conversation.
+		 * Ticket existence and ticket data come from the database.
 		 */
 		$conversation =
 			WP_RapidRescue_Chat_Conversation::get_or_create(
@@ -149,9 +148,6 @@ class WP_RapidRescue_Chat_REST_API {
 		 * If the customer supplied an email and there are anonymous
 		 * tickets in this conversation, attach those tickets to the
 		 * now-identified customer.
-		 *
-		 * This preserves the useful relationship created during
-		 * the original conversation.
 		 */
 		if ( absint( $customer_id ) > 0 ) {
 			self::attach_conversation_tickets_to_customer(
@@ -161,11 +157,7 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * Detect an explicit ticket number before asking the AI
-		 * anything about that ticket.
-		 *
-		 * Ticket lookup is performed directly against the database.
-		 * It does not depend on the browser session.
+		 * Detect an explicit ticket number in the current message.
 		 */
 		$ticket_lookup =
 			self::resolve_explicit_ticket_reference(
@@ -175,13 +167,61 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		/*
+		 * If an explicit ticket was successfully verified, make it
+		 * the active ticket for this conversation.
+		 *
+		 * This is the important persistence step.
+		 */
+		if ( ! empty( $ticket_lookup['ticket'] ) ) {
+			WP_RapidRescue_Chat_Conversation::set_active_ticket(
+				$conversation_id,
+				$ticket_lookup['ticket']->ticket_key
+			);
+		}
+
+		/*
+		 * If there was no explicit ticket number in this message,
+		 * retrieve the previously selected active ticket from the
+		 * conversation state.
+		 */
+		$active_ticket_key = '';
+
+		if ( empty( $ticket_lookup['ticket'] ) ) {
+			$active_ticket_key =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+					$conversation_id
+				);
+
+			if ( '' !== $active_ticket_key ) {
+				$active_ticket =
+					WP_RapidRescue_Chat_Ticket::get_by_key(
+						$active_ticket_key
+					);
+
+				/*
+				 * Only use the persisted ticket if it still exists.
+				 * This always retrieves the current database record,
+				 * so status changes are reflected immediately.
+				 */
+				if ( $active_ticket ) {
+					$ticket_lookup['ticket'] = $active_ticket;
+					$ticket_lookup['ticket_key'] =
+						$active_ticket->ticket_key;
+					$ticket_lookup['status'] = 'verified';
+					$ticket_lookup['customer_verified'] =
+						absint( $active_ticket->customer_id ) < 1 ||
+						(
+							absint( $customer_id ) > 0 &&
+							absint(
+								$active_ticket->customer_id
+							) === absint( $customer_id )
+						);
+				}
+			}
+		}
+
+		/*
 		 * Build relevant active ticket context.
-		 *
-		 * If the customer is identified, tickets are retrieved
-		 * from the database by customer ID.
-		 *
-		 * If there is no customer identity yet, tickets belonging
-		 * to the current conversation are still available as context.
 		 */
 		$ticket_context =
 			self::get_active_ticket_context(
@@ -190,28 +230,32 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		/*
-		 * Add the explicitly referenced ticket to the AI context.
-		 *
-		 * This ticket has already been found in the WordPress
-		 * database by its ticket number.
+		 * Add the explicitly referenced or persisted active ticket
+		 * to AI context.
 		 */
 		if (
-			! empty( $ticket_lookup['ticket'] )
+			! empty( $ticket_lookup['ticket'] ) &&
+			(
+				! isset( $ticket_lookup['customer_verified'] ) ||
+				$ticket_lookup['customer_verified'] ||
+				absint(
+					$ticket_lookup['ticket']->customer_id
+				) < 1
+			)
 		) {
 			$ticket_context =
 				self::add_ticket_to_context(
 					$ticket_context,
 					$ticket_lookup['ticket'],
-					true
+					! empty(
+						$ticket_lookup['explicit']
+					)
 				);
 		}
 
 		/*
 		 * Tell the AI when the customer explicitly supplied a ticket
-		 * number that PHP could not find.
-		 *
-		 * We deliberately do not expose information from another
-		 * ticket when the supplied number does not exist.
+		 * number that PHP could not find or verify.
 		 */
 		if (
 			! empty( $ticket_lookup['explicit'] ) &&
@@ -276,31 +320,45 @@ class WP_RapidRescue_Chat_REST_API {
 				)
 				: '';
 
-			/*
-			 * The AI is not allowed to select an arbitrary ticket.
-			 *
-			 * It must match a ticket number that PHP already found
-			 * in the customer's message or current verified context.
-			 */
 			$verified_ticket = null;
 
+			/*
+			 * First preference:
+			 * the active/explicitly verified ticket loaded by PHP.
+			 */
 			if (
 				'' !== $requested_ticket_key &&
 				! empty( $ticket_lookup['ticket'] ) &&
 				$requested_ticket_key ===
 					$ticket_lookup['ticket']->ticket_key
 			) {
-				$verified_ticket =
+				$candidate_ticket =
 					$ticket_lookup['ticket'];
+
+				/*
+				 * Anonymous tickets may be referenced directly by
+				 * their actual ticket number.
+				 *
+				 * Customer-owned tickets require matching identity.
+				 */
+				if (
+					absint(
+						$candidate_ticket->customer_id
+					) < 1 ||
+					(
+						absint( $customer_id ) > 0 &&
+						absint(
+							$candidate_ticket->customer_id
+						) === absint( $customer_id )
+					)
+				) {
+					$verified_ticket =
+						$candidate_ticket;
+				}
 			} elseif (
 				'' !== $requested_ticket_key &&
 				absint( $customer_id ) > 0
 			) {
-				/*
-				 * If the customer has already been identified by
-				 * email, PHP may verify the requested ticket against
-				 * that customer's database record.
-				 */
 				$candidate_ticket =
 					WP_RapidRescue_Chat_Ticket::get_by_key(
 						$requested_ticket_key
@@ -331,6 +389,14 @@ class WP_RapidRescue_Chat_REST_API {
 
 				$escalated = true;
 
+				/*
+				 * Keep the ticket active for subsequent messages.
+				 */
+				WP_RapidRescue_Chat_Conversation::set_active_ticket(
+					$conversation_id,
+					$ticket_key
+				);
+
 				$assistant_text = sprintf(
 					'Your request matches your existing support ticket %s, so I\'ll keep it with that support request.',
 					$ticket_key
@@ -345,10 +411,6 @@ class WP_RapidRescue_Chat_REST_API {
 		 * New ticket.
 		 */
 		elseif ( 'create_ticket' === $action_type ) {
-			/*
-			 * PHP, not the AI, decides whether there is enough
-			 * customer information to create a ticket.
-			 */
 			if ( absint( $customer_id ) < 1 ) {
 				$assistant_text =
 					'Before I create the support ticket, I need your email address so our support team knows how to follow up with you.';
@@ -385,10 +447,6 @@ class WP_RapidRescue_Chat_REST_API {
 					);
 
 				if ( is_wp_error( $ticket_result ) ) {
-					/*
-					 * Never allow the AI's original text to claim
-					 * that a ticket was created when PHP failed.
-					 */
 					if (
 						in_array(
 							$ticket_result->get_error_code(),
@@ -426,15 +484,20 @@ class WP_RapidRescue_Chat_REST_API {
 
 					$escalated = true;
 
+					/*
+					 * Make the newly created ticket the active ticket
+					 * for this conversation.
+					 */
+					WP_RapidRescue_Chat_Conversation::set_active_ticket(
+						$conversation_id,
+						$ticket_key
+					);
+
 					$confirmation =
 						WP_RapidRescue_Chat_Escalation::get_confirmation_message(
 							$ticket_result
 						);
 
-					/*
-					 * The confirmation comes from PHP and therefore
-					 * represents the actual application state.
-					 */
 					if ( '' !== trim( $confirmation ) ) {
 						$assistant_text =
 							$confirmation;
@@ -478,11 +541,10 @@ class WP_RapidRescue_Chat_REST_API {
 	 * Resolve an explicit ticket reference from the customer message.
 	 *
 	 * Ticket numbers are authoritative database references.
-	 * The current browser/session is NOT required.
 	 *
-	 * @param string   $message         Customer message.
+	 * @param string   $message Customer message.
 	 * @param int      $conversation_id Conversation ID.
-	 * @param int|null $customer_id     Customer ID.
+	 * @param int|null $customer_id Customer ID.
 	 * @return array
 	 */
 	private static function resolve_explicit_ticket_reference(
@@ -496,10 +558,10 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		$result = array(
-			'explicit'         => '' !== $ticket_key,
-			'ticket_key'       => $ticket_key,
-			'status'           => '',
-			'ticket'           => null,
+			'explicit'          => '' !== $ticket_key,
+			'ticket_key'        => $ticket_key,
+			'status'            => '',
+			'ticket'            => null,
 			'customer_verified' => false,
 		);
 
@@ -507,9 +569,6 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
-		/*
-		 * Look up the ticket directly in WordPress.
-		 */
 		$ticket =
 			WP_RapidRescue_Chat_Ticket::get_by_key(
 				$ticket_key
@@ -522,9 +581,7 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * If the ticket already belongs to a known customer and
-		 * the current visitor has supplied that customer's email,
-		 * verify the customer relationship.
+		 * Customer-owned tickets require matching customer identity.
 		 */
 		if ( absint( $ticket->customer_id ) > 0 ) {
 			if (
@@ -539,22 +596,15 @@ class WP_RapidRescue_Chat_REST_API {
 				return $result;
 			}
 
-			/*
-			 * A known customer's ticket should not be exposed merely
-			 * because somebody guessed the ticket number.
-			 */
-			$result['status'] = 'customer_verification_required';
+			$result['status'] =
+				'customer_verification_required';
 
 			return $result;
 		}
 
 		/*
-		 * Anonymous tickets can be resolved by their explicit ticket
-		 * reference. The reference itself is the server-side lookup
-		 * key; browser session is not required.
-		 *
-		 * Once the visitor provides an email, the ticket can later
-		 * become associated with a customer record.
+		 * Anonymous tickets can be resolved directly by their
+		 * explicit ticket number.
 		 */
 		$result['status'] = 'verified';
 		$result['ticket'] = $ticket;
@@ -566,7 +616,7 @@ class WP_RapidRescue_Chat_REST_API {
 	 * Get active ticket context for the AI.
 	 *
 	 * @param int      $conversation_id Conversation ID.
-	 * @param int|null $customer_id     Customer ID.
+	 * @param int|null $customer_id Customer ID.
 	 * @return array
 	 */
 	private static function get_active_ticket_context(
@@ -575,12 +625,6 @@ class WP_RapidRescue_Chat_REST_API {
 	) {
 		$tickets = array();
 
-		/*
-		 * Identified customer:
-		 *
-		 * Always retrieve tickets from the WordPress database using
-		 * the customer ID. The current browser session is irrelevant.
-		 */
 		if ( absint( $customer_id ) > 0 ) {
 			$tickets =
 				WP_RapidRescue_Chat_Ticket::get_by_customer(
@@ -588,12 +632,6 @@ class WP_RapidRescue_Chat_REST_API {
 					20
 				);
 		} else {
-			/*
-			 * No customer identity yet:
-			 *
-			 * Conversation tickets can still be used for the current
-			 * conversation.
-			 */
 			$tickets =
 				WP_RapidRescue_Chat_Ticket::get_by_conversation(
 					absint( $conversation_id ),
@@ -629,9 +667,9 @@ class WP_RapidRescue_Chat_REST_API {
 	/**
 	 * Add a ticket to AI context if it is not already present.
 	 *
-	 * @param array  $context            Existing context.
-	 * @param object $ticket             Ticket object.
-	 * @param bool   $explicit_reference Whether customer explicitly named it.
+	 * @param array  $context Existing context.
+	 * @param object $ticket Ticket object.
+	 * @param bool   $explicit_reference Whether explicitly referenced.
 	 * @return array
 	 */
 	private static function add_ticket_to_context(
@@ -646,7 +684,8 @@ class WP_RapidRescue_Chat_REST_API {
 		foreach ( $context as $existing ) {
 			if (
 				isset( $existing['ticket_key'] ) &&
-				$existing['ticket_key'] === $ticket->ticket_key
+				$existing['ticket_key'] ===
+					$ticket->ticket_key
 			) {
 				return $context;
 			}
@@ -664,8 +703,8 @@ class WP_RapidRescue_Chat_REST_API {
 	/**
 	 * Convert a ticket object to limited AI context.
 	 *
-	 * @param object $ticket             Ticket object.
-	 * @param bool   $explicit_reference Whether customer explicitly named it.
+	 * @param object $ticket Ticket object.
+	 * @param bool   $explicit_reference Whether explicitly referenced.
 	 * @return array
 	 */
 	private static function ticket_to_context(
@@ -697,7 +736,7 @@ class WP_RapidRescue_Chat_REST_API {
 	 * Attach anonymous tickets in this exact conversation to a customer.
 	 *
 	 * @param int $conversation_id Conversation ID.
-	 * @param int $customer_id     Customer ID.
+	 * @param int $customer_id Customer ID.
 	 * @return void
 	 */
 	private static function attach_conversation_tickets_to_customer(

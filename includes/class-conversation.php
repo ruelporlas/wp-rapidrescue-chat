@@ -44,9 +44,6 @@ class WP_RapidRescue_Chat_Conversation {
 	/**
 	 * Create database tables.
 	 *
-	 * dbDelta() will also update the existing conversations table
-	 * when the customer_id column is added.
-	 *
 	 * @return void
 	 */
 	public static function create_tables() {
@@ -192,10 +189,6 @@ class WP_RapidRescue_Chat_Conversation {
 
 		if ( $conversation ) {
 
-			/*
-			 * If this conversation was previously anonymous and we now
-			 * know the customer, associate it with that customer.
-			 */
 			if (
 				empty( $conversation->customer_id ) &&
 				absint( $customer_id ) > 0
@@ -331,6 +324,136 @@ class WP_RapidRescue_Chat_Conversation {
 				LIMIT %d",
 				$customer_id,
 				$limit
+			)
+		);
+	}
+
+	/**
+	 * Set the active ticket for a conversation.
+	 *
+	 * This uses the existing summary field to persist small
+	 * pieces of conversation state without requiring a new
+	 * database column.
+	 *
+	 * @param int    $conversation_id Conversation ID.
+	 * @param string $ticket_key Ticket number.
+	 * @return bool|WP_Error
+	 */
+	public static function set_active_ticket(
+		$conversation_id,
+		$ticket_key
+	) {
+
+		global $wpdb;
+
+		$conversation_id = absint( $conversation_id );
+		$ticket_key      = strtoupper(
+			sanitize_text_field( $ticket_key )
+		);
+
+		if ( $conversation_id < 1 ) {
+			return new WP_Error(
+				'invalid_conversation',
+				'Invalid conversation.'
+			);
+		}
+
+		if ( '' === $ticket_key ) {
+			return new WP_Error(
+				'invalid_ticket_key',
+				'Invalid ticket number.'
+			);
+		}
+
+		$conversation = self::get_by_id( $conversation_id );
+
+		if ( ! $conversation ) {
+			return new WP_Error(
+				'conversation_not_found',
+				'Conversation not found.'
+			);
+		}
+
+		$summary_data = array();
+
+		if ( ! empty( $conversation->summary ) ) {
+			$decoded = json_decode(
+				$conversation->summary,
+				true
+			);
+
+			if ( is_array( $decoded ) ) {
+				$summary_data = $decoded;
+			}
+		}
+
+		$summary_data['active_ticket_key'] = $ticket_key;
+
+		$result = $wpdb->update(
+			self::conversations_table(),
+			array(
+				'summary'    => wp_json_encode( $summary_data ),
+				'updated_at' => current_time( 'mysql', true ),
+			),
+			array(
+				'id' => $conversation_id,
+			),
+			array(
+				'%s',
+				'%s',
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $result ) {
+			return new WP_Error(
+				'conversation_ticket_update_failed',
+				'The active ticket could not be saved.'
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Get the active ticket key for a conversation.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @return string
+	 */
+	public static function get_active_ticket_key(
+		$conversation_id
+	) {
+
+		$conversation_id = absint( $conversation_id );
+
+		if ( $conversation_id < 1 ) {
+			return '';
+		}
+
+		$conversation = self::get_by_id( $conversation_id );
+
+		if ( ! $conversation || empty( $conversation->summary ) ) {
+			return '';
+		}
+
+		$summary_data = json_decode(
+			$conversation->summary,
+			true
+		);
+
+		if (
+			! is_array( $summary_data ) ||
+			empty( $summary_data['active_ticket_key'] )
+		) {
+			return '';
+		}
+
+		return strtoupper(
+			sanitize_text_field(
+				$summary_data['active_ticket_key']
 			)
 		);
 	}
