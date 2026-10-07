@@ -51,6 +51,7 @@ class WP_RapidRescue_Chat_Plugin {
 	private function load_dependencies() {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-settings.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-knowledge.php';
 	}
 
 	/**
@@ -68,6 +69,11 @@ class WP_RapidRescue_Chat_Plugin {
 		add_action(
 			'admin_menu',
 			array( $this, 'register_admin_menu' )
+		);
+
+		add_action(
+			'init',
+			array( 'WP_RapidRescue_Chat_Knowledge', 'register' )
 		);
 	}
 
@@ -108,23 +114,5 @@ class WP_RapidRescue_Chat_Plugin {
 			</form>
 		</div>
 		<?php
-	}
-
-	/**
-	 * Run when the plugin is activated.
-	 *
-	 * @return void
-	 */
-	public static function activate() {
-		// Initial activation setup will be added here.
-	}
-
-	/**
-	 * Run when the plugin is deactivated.
-	 *
-	 * @return void
-	 */
-	public static function deactivate() {
-		// Initial deactivation cleanup will be added here.
 	}
 }
