@@ -18,10 +18,10 @@ class WP_RapidRescue_Chat_Escalation {
 	 * Create a support ticket from a conversation.
 	 *
 	 * @param int    $conversation_id Conversation ID.
-	 * @param int    $customer_id     Optional customer ID.
-	 * @param string $subject         Ticket subject.
-	 * @param string $summary         Ticket summary.
-	 * @param string $priority        Ticket priority.
+	 * @param int    $customer_id Customer ID.
+	 * @param string $subject Ticket subject.
+	 * @param string $summary Ticket summary.
+	 * @param string $priority Ticket priority.
 	 * @return array|WP_Error
 	 */
 	public static function create_ticket(
@@ -84,40 +84,42 @@ class WP_RapidRescue_Chat_Escalation {
 			);
 		}
 
-		/*
-		 * If no customer was supplied, use the customer already
-		 * attached to the conversation.
-		 */
-		if ( ! $customer_id && ! empty( $conversation->customer_id ) ) {
+		if (
+			! $customer_id &&
+			! empty( $conversation->customer_id )
+		) {
 			$customer_id = absint(
 				$conversation->customer_id
 			);
 		}
 
-		/*
-		 * Build a summary from the conversation if the AI did not
-		 * provide one.
-		 */
 		if ( '' === trim( $summary ) ) {
-			$summary = self::build_summary(
-				$conversation_id
-			);
+			$summary =
+				self::build_summary(
+					$conversation_id
+				);
+		}
+
+		if ( '' === trim( $subject ) ) {
+			$subject =
+				'Customer support request';
 		}
 
 		/*
-		 * Provide a safe fallback subject.
+		 * This method is only called when the AI has classified
+		 * the issue as a genuinely new support issue.
+		 *
+		 * Existing tickets are handled separately by REST API
+		 * verification.
 		 */
-		if ( '' === trim( $subject ) ) {
-			$subject = 'Customer support request';
-		}
-
 		$result =
 			WP_RapidRescue_Chat_Ticket::create_from_conversation(
 				$conversation_id,
 				$customer_id,
 				$subject,
 				$summary,
-				$priority
+				$priority,
+				true
 			);
 
 		if ( is_wp_error( $result ) ) {
@@ -151,12 +153,18 @@ class WP_RapidRescue_Chat_Escalation {
 
 		foreach ( $messages as $message ) {
 
-			$role = isset( $message->role )
+			$role = isset(
+				$message->role
+			)
 				? $message->role
 				: '';
 
-			$content = isset( $message->message )
-				? trim( $message->message )
+			$content = isset(
+				$message->message
+			)
+				? trim(
+					$message->message
+				)
 				: '';
 
 			if ( '' === $content ) {
@@ -188,9 +196,6 @@ class WP_RapidRescue_Chat_Escalation {
 	/**
 	 * Build a customer-facing confirmation message.
 	 *
-	 * This method only confirms an escalation when the application
-	 * has actually created or located a real ticket.
-	 *
 	 * @param array $result Ticket creation result.
 	 * @return string
 	 */
@@ -214,12 +219,10 @@ class WP_RapidRescue_Chat_Escalation {
 			return '';
 		}
 
-		/*
-		 * An existing active ticket means the customer's request is
-		 * already with the support workflow.
-		 */
 		if (
-			! empty( $result['already_exists'] )
+			! empty(
+				$result['already_exists']
+			)
 		) {
 
 			return sprintf(
