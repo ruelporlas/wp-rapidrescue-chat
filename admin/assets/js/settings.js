@@ -11,19 +11,18 @@ document.addEventListener('DOMContentLoaded', function () {
 		'.rr-provider-gemini'
 	);
 
-	/*
-	 * Provider field visibility.
-	 */
 	if (providerSelect) {
 		function updateProviderFields() {
 			const provider = providerSelect.value;
 
 			openaiFields.forEach(function (field) {
-				field.style.display = provider === 'openai' ? '' : 'none';
+				field.style.display =
+					provider === 'openai' ? '' : 'none';
 			});
 
 			geminiFields.forEach(function (field) {
-				field.style.display = provider === 'gemini' ? '' : 'none';
+				field.style.display =
+					provider === 'gemini' ? '' : 'none';
 			});
 		}
 
@@ -35,9 +34,6 @@ document.addEventListener('DOMContentLoaded', function () {
 		updateProviderFields();
 	}
 
-	/*
-	 * AI connection test.
-	 */
 	const testButton = document.querySelector(
 		'#wp-rapidrescue-test-ai-connection'
 	);
@@ -92,19 +88,34 @@ document.addEventListener('DOMContentLoaded', function () {
 		)
 			.then(function (response) {
 
-				if (!response.ok) {
-					throw new Error(
-						'WordPress returned HTTP ' + response.status + '.'
-					);
-				}
+				return response.json()
+					.then(function (data) {
 
-				return response.json();
+						return {
+							ok: response.ok,
+							status: response.status,
+							data: data
+						};
+					})
+					.catch(function () {
+
+						return {
+							ok: false,
+							status: response.status,
+							data: null
+						};
+					});
 			})
-			.then(function (data) {
+			.then(function (result) {
 
-				if (data.success) {
+				const data = result.data;
 
-					const result = data.data || {};
+				if (
+					result.ok &&
+					data &&
+					data.success
+				) {
+					const responseData = data.data || {};
 
 					testResult.className =
 						'notice notice-success inline';
@@ -113,23 +124,38 @@ document.addEventListener('DOMContentLoaded', function () {
 						'<p><strong>Connection successful.</strong></p>' +
 						'<p>' +
 						'Provider: ' +
-						escapeHtml(result.provider) +
+						escapeHtml(responseData.provider) +
 						'<br>' +
 						'Model: ' +
-						escapeHtml(result.model) +
+						escapeHtml(responseData.model) +
 						'<br>' +
 						'Response: ' +
-						escapeHtml(result.response) +
+						escapeHtml(responseData.response) +
 						'</p>';
 
 					return;
 				}
 
-				const message =
+				let message =
+					'The AI connection test failed.';
+
+				if (
+					data &&
 					data.data &&
 					data.data.message
-						? data.data.message
-						: 'The AI connection test failed.';
+				) {
+					message = data.data.message;
+				}
+
+				if (
+					!result.ok &&
+					!data
+				) {
+					message =
+						'WordPress returned HTTP ' +
+						result.status +
+						' without a readable error message.';
+				}
 
 				showError(message);
 			})
@@ -144,15 +170,11 @@ document.addEventListener('DOMContentLoaded', function () {
 			.finally(function () {
 
 				testButton.disabled = false;
-				testButton.textContent = 'Test AI Connection';
+				testButton.textContent =
+					'Test AI Connection';
 			});
 	});
 
-	/**
-	 * Display an error message.
-	 *
-	 * @param {string} message Error message.
-	 */
 	function showError(message) {
 
 		testResult.className =
@@ -165,18 +187,13 @@ document.addEventListener('DOMContentLoaded', function () {
 			'</p>';
 	}
 
-	/**
-	 * Escape text before inserting it into HTML.
-	 *
-	 * @param {*} value Value to escape.
-	 * @return {string} Escaped HTML.
-	 */
 	function escapeHtml(value) {
 
 		const div = document.createElement('div');
 
 		div.textContent =
-			value === null || typeof value === 'undefined'
+			value === null ||
+			typeof value === 'undefined'
 				? ''
 				: String(value);
 

@@ -22,7 +22,7 @@ class WP_RapidRescue_Chat_Settings {
 	const OPTION_NAME = 'wp_rapidrescue_chat_settings';
 
 	/**
-	 * Register plugin settings.
+	 * Register settings.
 	 *
 	 * @return void
 	 */
@@ -34,14 +34,20 @@ class WP_RapidRescue_Chat_Settings {
 			array(
 				'type'              => 'array',
 				'sanitize_callback' => array( __CLASS__, 'sanitize' ),
-				'default'           => array(),
+				'default'           => array(
+					'ai_provider'   => 'openai',
+					'openai_api_key' => '',
+					'openai_model'   => 'gpt-6-luna',
+					'gemini_api_key' => '',
+					'gemini_model'   => 'gemini-3.8-flash',
+				),
 			)
 		);
 
 		add_settings_section(
-			'wp_rapidrescue_chat_general',
-			'AI Settings',
-			array( __CLASS__, 'render_general_section' ),
+			'wp_rapidrescue_chat_ai_section',
+			'AI Provider Settings',
+			array( __CLASS__, 'render_ai_section' ),
 			'wp-rapidrescue-chat'
 		);
 
@@ -50,7 +56,7 @@ class WP_RapidRescue_Chat_Settings {
 			'AI Provider',
 			array( __CLASS__, 'render_provider_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_general'
+			'wp_rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -58,10 +64,7 @@ class WP_RapidRescue_Chat_Settings {
 			'OpenAI API Key',
 			array( __CLASS__, 'render_openai_api_key_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_general',
-			array(
-				'class' => 'rr-provider-field rr-provider-openai',
-			)
+			'wp_rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -69,10 +72,7 @@ class WP_RapidRescue_Chat_Settings {
 			'OpenAI Model',
 			array( __CLASS__, 'render_openai_model_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_general',
-			array(
-				'class' => 'rr-provider-field rr-provider-openai',
-			)
+			'wp_rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -80,10 +80,7 @@ class WP_RapidRescue_Chat_Settings {
 			'Google Gemini API Key',
 			array( __CLASS__, 'render_gemini_api_key_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_general',
-			array(
-				'class' => 'rr-provider-field rr-provider-gemini',
-			)
+			'wp_rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -91,142 +88,113 @@ class WP_RapidRescue_Chat_Settings {
 			'Google Gemini Model',
 			array( __CLASS__, 'render_gemini_model_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_general',
-			array(
-				'class' => 'rr-provider-field rr-provider-gemini',
-			)
+			'wp_rapidrescue_chat_ai_section'
 		);
 	}
 
 	/**
-	 * Sanitize plugin settings.
+	 * Sanitize settings.
 	 *
-	 * @param mixed $input Submitted settings.
+	 * @param array $input Raw settings.
 	 * @return array
 	 */
 	public static function sanitize( $input ) {
 
-		if ( ! is_array( $input ) ) {
-			return array();
-		}
+		$input = is_array( $input ) ? $input : array();
 
 		$existing = get_option(
 			self::OPTION_NAME,
 			array()
 		);
 
-		if ( ! is_array( $existing ) ) {
-			$existing = array();
-		}
+		$sanitized = array();
 
-		$settings = $existing;
+		$sanitized['ai_provider'] = isset( $input['ai_provider'] )
+			? sanitize_key( $input['ai_provider'] )
+			: 'openai';
 
-		/*
-		 * AI provider.
-		 */
-		if ( isset( $input['ai_provider'] ) ) {
+		$sanitized['openai_api_key'] = isset( $input['openai_api_key'] )
+			? sanitize_text_field( $input['openai_api_key'] )
+			: '';
 
-			$provider = sanitize_key(
-				$input['ai_provider']
-			);
+		$sanitized['openai_model'] = isset( $input['openai_model'] )
+			? sanitize_text_field( $input['openai_model'] )
+			: 'gpt-6-luna';
 
-			if ( array_key_exists( $provider, self::get_providers() ) ) {
-				$settings['ai_provider'] = $provider;
-			}
-		}
+		$sanitized['gemini_api_key'] = isset( $input['gemini_api_key'] )
+			? sanitize_text_field( $input['gemini_api_key'] )
+			: '';
 
-		/*
-		 * OpenAI API key.
-		 */
-		if ( isset( $input['openai_api_key'] ) ) {
-			$settings['openai_api_key'] = sanitize_text_field(
-				$input['openai_api_key']
-			);
-		}
+		$sanitized['gemini_model'] = isset( $input['gemini_model'] )
+			? sanitize_text_field( $input['gemini_model'] )
+			: 'gemini-3.8-flash';
 
 		/*
-		 * OpenAI model.
+		 * Preserve an existing API key if the field is left blank.
 		 */
-		if ( isset( $input['openai_model'] ) ) {
-			$settings['openai_model'] = sanitize_text_field(
-				$input['openai_model']
-			);
+		if (
+			empty( $sanitized['openai_api_key'] ) &&
+			! empty( $existing['openai_api_key'] )
+		) {
+			$sanitized['openai_api_key'] =
+				$existing['openai_api_key'];
 		}
 
-		/*
-		 * Gemini API key.
-		 */
-		if ( isset( $input['gemini_api_key'] ) ) {
-			$settings['gemini_api_key'] = sanitize_text_field(
-				$input['gemini_api_key']
-			);
+		if (
+			empty( $sanitized['gemini_api_key'] ) &&
+			! empty( $existing['gemini_api_key'] )
+		) {
+			$sanitized['gemini_api_key'] =
+				$existing['gemini_api_key'];
 		}
 
-		/*
-		 * Gemini model.
-		 */
-		if ( isset( $input['gemini_model'] ) ) {
-
-			$gemini_model = sanitize_text_field(
-				$input['gemini_model']
-			);
-
-			if ( array_key_exists( $gemini_model, self::get_gemini_models() ) ) {
-				$settings['gemini_model'] = $gemini_model;
-			}
-		}
-
-		return $settings;
+		return $sanitized;
 	}
 
 	/**
-	 * Render general settings section.
+	 * Render AI settings section.
 	 *
 	 * @return void
 	 */
-	public static function render_general_section() {
-		?>
-		<p>
-			Select the AI provider that will power the WP RapidRescue support assistant.
-		</p>
-		<?php
+	public static function render_ai_section() {
+
+		echo '<p>';
+		echo esc_html(
+			'Configure the AI provider used by WP RapidRescue Chat.'
+		);
+		echo '</p>';
 	}
 
 	/**
-	 * Render AI provider field.
+	 * Render provider field.
 	 *
 	 * @return void
 	 */
 	public static function render_provider_field() {
 
-		$current = self::get(
+		$value = self::get(
 			'ai_provider',
 			'openai'
 		);
-		?>
 
+		$providers = array(
+			'openai' => 'OpenAI',
+			'gemini' => 'Google Gemini',
+		);
+
+		?>
 		<select
-			id="wp-rapidrescue-ai-provider"
 			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[ai_provider]"
 		>
-
-			<?php foreach ( self::get_providers() as $id => $name ) : ?>
-
+			<?php foreach ( $providers as $key => $label ) : ?>
 				<option
-					value="<?php echo esc_attr( $id ); ?>"
-					<?php selected( $current, $id ); ?>
+					value="<?php echo esc_attr( $key ); ?>"
+					<?php selected( $value, $key ); ?>
 				>
-					<?php echo esc_html( $name ); ?>
+					<?php echo esc_html( $label ); ?>
 				</option>
-
 			<?php endforeach; ?>
-
 		</select>
-
-		<p class="description">
-			Choose which AI service will handle customer conversations.
-		</p>
-
 		<?php
 	}
 
@@ -241,20 +209,17 @@ class WP_RapidRescue_Chat_Settings {
 			'openai_api_key',
 			''
 		);
+
 		?>
-
-		<input
-			type="password"
-			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[openai_api_key]"
-			value="<?php echo esc_attr( $value ); ?>"
-			class="regular-text"
-			autocomplete="new-password"
-		/>
-
-		<p class="description">
-			Your OpenAI API key is stored on the WordPress server and is never sent to the public chat interface.
-		</p>
-
+		<div class="rr-provider-openai">
+			<input
+				type="password"
+				class="regular-text"
+				name="<?php echo esc_attr( self::OPTION_NAME ); ?>[openai_api_key]"
+				value="<?php echo esc_attr( $value ); ?>"
+				autocomplete="off"
+			/>
+		</div>
 		<?php
 	}
 
@@ -267,22 +232,18 @@ class WP_RapidRescue_Chat_Settings {
 
 		$value = self::get(
 			'openai_model',
-			''
+			'gpt-6-luna'
 		);
+
 		?>
-
-		<input
-			type="text"
-			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[openai_model]"
-			value="<?php echo esc_attr( $value ); ?>"
-			class="regular-text"
-			autocomplete="off"
-		/>
-
-		<p class="description">
-			Enter the OpenAI model ID you want to use.
-		</p>
-
+		<div class="rr-provider-openai">
+			<input
+				type="text"
+				class="regular-text"
+				name="<?php echo esc_attr( self::OPTION_NAME ); ?>[openai_model]"
+				value="<?php echo esc_attr( $value ); ?>"
+			/>
+		</div>
 		<?php
 	}
 
@@ -297,98 +258,76 @@ class WP_RapidRescue_Chat_Settings {
 			'gemini_api_key',
 			''
 		);
+
 		?>
-
-		<input
-			type="password"
-			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[gemini_api_key]"
-			value="<?php echo esc_attr( $value ); ?>"
-			class="regular-text"
-			autocomplete="new-password"
-		/>
-
-		<p class="description">
-			Your Google Gemini API key is stored on the WordPress server and is never sent to the public chat interface.
-		</p>
-
+		<div class="rr-provider-gemini">
+			<input
+				type="password"
+				class="regular-text"
+				name="<?php echo esc_attr( self::OPTION_NAME ); ?>[gemini_api_key]"
+				value="<?php echo esc_attr( $value ); ?>"
+				autocomplete="off"
+			/>
+		</div>
 		<?php
 	}
 
 	/**
-	 * Render Gemini model selector.
+	 * Render Gemini model field.
 	 *
 	 * @return void
 	 */
 	public static function render_gemini_model_field() {
 
-		$current = self::get(
+		$value = self::get(
 			'gemini_model',
 			'gemini-3.8-flash'
 		);
+
+		$models = self::get_gemini_models();
+
 		?>
-
-		<select
-			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[gemini_model]"
-			id="wp-rapidrescue-gemini-model"
-		>
-
-			<?php foreach ( self::get_gemini_models() as $model_id => $model_name ) : ?>
-
-				<option
-					value="<?php echo esc_attr( $model_id ); ?>"
-					<?php selected( $current, $model_id ); ?>
-				>
-					<?php echo esc_html( $model_name ); ?>
-				</option>
-
-			<?php endforeach; ?>
-
-		</select>
-
-		<p class="description">
-			Select the Google Gemini model used by the support assistant.
-		</p>
-
+		<div class="rr-provider-gemini">
+			<select
+				name="<?php echo esc_attr( self::OPTION_NAME ); ?>[gemini_model]"
+			>
+				<?php foreach ( $models as $model_id => $label ) : ?>
+					<option
+						value="<?php echo esc_attr( $model_id ); ?>"
+						<?php selected( $value, $model_id ); ?>
+					>
+						<?php echo esc_html( $label ); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+		</div>
 		<?php
 	}
 
 	/**
-	 * Get available AI providers.
+	 * Get Gemini model list.
 	 *
 	 * @return array
 	 */
-	private static function get_providers() {
+	public static function get_gemini_models() {
 
 		return array(
-			'openai' => 'OpenAI',
-			'gemini' => 'Google Gemini',
+			'gemini-3.8-flash'       => 'Gemini 3.8 Flash',
+			'gemini-3.7-flash'       => 'Gemini 3.7 Flash',
+			'gemini-3.6-flash'       => 'Gemini 3.6 Flash',
+			'gemini-3.5-flash'       => 'Gemini 3.5 Flash',
+			'gemini-3.5-flash-lite'  => 'Gemini 3.5 Flash Lite',
+			'gemini-3.1-flash-lite'  => 'Gemini 3.1 Flash Lite',
+			'gemini-3.1-pro-preview' => 'Gemini 3.1 Pro Preview',
+			'gemini-3-flash-preview' => 'Gemini 3 Flash Preview',
+			'gemini-2.5-pro'         => 'Gemini 2.5 Pro',
+			'gemini-2.5-flash'       => 'Gemini 2.5 Flash',
+			'gemini-2.5-flash-lite'  => 'Gemini 2.5 Flash Lite',
 		);
 	}
 
 	/**
-	 * Get available Gemini models.
-	 *
-	 * @return array
-	 */
-	private static function get_gemini_models() {
-
-		return array(
-			'gemini-3.8-flash'      => 'Gemini 3.8 Flash',
-			'gemini-3.7-flash'      => 'Gemini 3.7 Flash',
-			'gemini-3.6-flash'      => 'Gemini 3.6 Flash',
-			'gemini-3.5-flash'      => 'Gemini 3.5 Flash',
-			'gemini-3.5-flash-lite' => 'Gemini 3.5 Flash-Lite',
-			'gemini-3.1-flash-lite' => 'Gemini 3.1 Flash-Lite',
-			'gemini-3.1-pro-preview' => 'Gemini 3.1 Pro (Preview)',
-			'gemini-3-flash-preview' => 'Gemini 3 Flash (Preview)',
-			'gemini-2.5-pro'        => 'Gemini 2.5 Pro',
-			'gemini-2.5-flash'      => 'Gemini 2.5 Flash',
-			'gemini-2.5-flash-lite' => 'Gemini 2.5 Flash-Lite',
-		);
-	}
-
-	/**
-	 * Get a setting.
+	 * Get a setting value.
 	 *
 	 * @param string $key     Setting key.
 	 * @param mixed  $default Default value.
@@ -414,20 +353,34 @@ class WP_RapidRescue_Chat_Settings {
 	/**
 	 * Enqueue admin assets.
 	 *
-	 * @param string $hook Current admin page hook.
+	 * @param string $hook_suffix Current admin page.
 	 * @return void
 	 */
-	public static function enqueue_admin_assets( $hook ) {
+	public static function enqueue_admin_assets( $hook_suffix ) {
 
-		if ( 'settings_page_wp-rapidrescue-chat' !== $hook ) {
+		if ( 'settings_page_wp-rapidrescue-chat' !== $hook_suffix ) {
 			return;
 		}
 
+		$script_path = WP_RAPIDRESCUE_CHAT_PATH .
+			'admin/assets/js/settings.js';
+
+		$script_url = WP_RAPIDRESCUE_CHAT_URL .
+			'admin/assets/js/settings.js';
+
+		/*
+		 * Use the file modification time during development so the
+		 * browser always receives the latest JavaScript file.
+		 */
+		$script_version = file_exists( $script_path )
+			? filemtime( $script_path )
+			: WP_RAPIDRESCUE_CHAT_VERSION;
+
 		wp_enqueue_script(
 			'wp-rapidrescue-chat-settings',
-			WP_RAPIDRESCUE_CHAT_URL . 'admin/assets/js/settings.js',
+			$script_url,
 			array(),
-			WP_RAPIDRESCUE_CHAT_VERSION,
+			$script_version,
 			true
 		);
 
