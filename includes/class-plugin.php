@@ -76,6 +76,11 @@ class WP_RapidRescue_Chat_Plugin {
 		);
 
 		add_action(
+			'admin_enqueue_scripts',
+			array( 'WP_RapidRescue_Chat_Settings', 'enqueue_admin_assets' )
+		);
+
+		add_action(
 			'init',
 			array( 'WP_RapidRescue_Chat_Knowledge', 'register' )
 		);

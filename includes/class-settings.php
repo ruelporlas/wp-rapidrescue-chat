@@ -50,7 +50,7 @@ class WP_RapidRescue_Chat_Settings {
 			'wp-rapidrescue-chat',
 			'wp_rapidrescue_chat_general',
 			array(
-				'class' => 'rr-provider-openai',
+				'class' => 'rr-provider-field rr-provider-openai',
 			)
 		);
 
@@ -61,7 +61,7 @@ class WP_RapidRescue_Chat_Settings {
 			'wp-rapidrescue-chat',
 			'wp_rapidrescue_chat_general',
 			array(
-				'class' => 'rr-provider-openai',
+				'class' => 'rr-provider-field rr-provider-openai',
 			)
 		);
 
@@ -72,7 +72,7 @@ class WP_RapidRescue_Chat_Settings {
 			'wp-rapidrescue-chat',
 			'wp_rapidrescue_chat_general',
 			array(
-				'class' => 'rr-provider-gemini',
+				'class' => 'rr-provider-field rr-provider-gemini',
 			)
 		);
 
@@ -83,7 +83,7 @@ class WP_RapidRescue_Chat_Settings {
 			'wp-rapidrescue-chat',
 			'wp-rapidrescue_chat_general',
 			array(
-				'class' => 'rr-provider-gemini',
+				'class' => 'rr-provider-field rr-provider-gemini',
 			)
 		);
 	}
@@ -144,7 +144,7 @@ class WP_RapidRescue_Chat_Settings {
 	}
 
 	public static function render_general_section() {
-		echo '<p>Choose the AI provider used by WP RapidRescue Chat.</p>';
+		echo '<p>Select the AI provider that will power the WP RapidRescue support assistant.</p>';
 	}
 
 	public static function render_provider_field() {
@@ -156,6 +156,7 @@ class WP_RapidRescue_Chat_Settings {
 		?>
 
 		<select
+			id="wp-rapidrescue-ai-provider"
 			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[ai_provider]"
 		>
 
@@ -173,7 +174,7 @@ class WP_RapidRescue_Chat_Settings {
 		</select>
 
 		<p class="description">
-			Select the AI provider that will power the support assistant.
+			Choose which AI service will handle customer conversations.
 		</p>
 
 		<?php
@@ -196,7 +197,7 @@ class WP_RapidRescue_Chat_Settings {
 		/>
 
 		<p class="description">
-			Your OpenAI API key is stored on the WordPress server.
+			Your OpenAI API key is stored on the WordPress server and is never sent to the public chat interface.
 		</p>
 
 		<?php
@@ -242,7 +243,7 @@ class WP_RapidRescue_Chat_Settings {
 		/>
 
 		<p class="description">
-			Your Google Gemini API key is stored on the WordPress server.
+			Your Google Gemini API key is stored on the WordPress server and is never sent to the public chat interface.
 		</p>
 
 		<?php
