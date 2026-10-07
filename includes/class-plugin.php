@@ -33,6 +33,7 @@ class WP_RapidRescue_Chat_Plugin {
 		 * Create/update plugin database tables.
 		 */
 		WP_RapidRescue_Chat_Conversation::create_tables();
+		WP_RapidRescue_Chat_Customer::create_table();
 
 		add_action(
 			'init',
@@ -81,13 +82,14 @@ class WP_RapidRescue_Chat_Plugin {
 				'register_routes',
 			)
 		);
+
 		add_action(
-	'admin_menu',
-	array(
-		'WP_RapidRescue_Chat_Conversations_Admin',
-		'register_menu',
-	)
-);
+			'admin_menu',
+			array(
+				'WP_RapidRescue_Chat_Conversations_Admin',
+				'register_menu',
+			)
+		);
 
 		WP_RapidRescue_Chat_Chat_Widget::init();
 	}
@@ -102,6 +104,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-conversation.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-customer.php';
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/ai/class-provider.php';
@@ -120,8 +125,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'public/class-chat-widget.php';
+
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'admin/class-conversations.php';	
+			'admin/class-conversations.php';
 	}
 
 	public function register_admin_menu() {

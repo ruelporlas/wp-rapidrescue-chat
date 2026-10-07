@@ -44,6 +44,9 @@ class WP_RapidRescue_Chat_Conversation {
 	/**
 	 * Create database tables.
 	 *
+	 * dbDelta() will also update the existing conversations table
+	 * when the customer_id column is added.
+	 *
 	 * @return void
 	 */
 	public static function create_tables() {
@@ -59,6 +62,7 @@ class WP_RapidRescue_Chat_Conversation {
 
 		$sql = "CREATE TABLE {$conversations_table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			customer_id bigint(20) unsigned NULL,
 			session_id varchar(64) NOT NULL,
 			status varchar(20) NOT NULL DEFAULT 'active',
 			summary longtext NULL,
@@ -66,6 +70,7 @@ class WP_RapidRescue_Chat_Conversation {
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY session_id (session_id),
+			KEY customer_id (customer_id),
 			KEY status (status),
 			KEY updated_at (updated_at)
 		) {$charset_collate};
@@ -87,10 +92,14 @@ class WP_RapidRescue_Chat_Conversation {
 	/**
 	 * Create a new conversation.
 	 *
-	 * @param string $session_id Browser session identifier.
+	 * @param string   $session_id Browser session identifier.
+	 * @param int|null $customer_id Optional customer ID.
 	 * @return int|WP_Error
 	 */
-	public static function create( $session_id ) {
+	public static function create(
+		$session_id,
+		$customer_id = null
+	) {
 
 		global $wpdb;
 
@@ -103,18 +112,26 @@ class WP_RapidRescue_Chat_Conversation {
 			);
 		}
 
+		$customer_id = absint( $customer_id );
+
+		if ( $customer_id < 1 ) {
+			$customer_id = null;
+		}
+
 		$now = current_time( 'mysql', true );
 
 		$result = $wpdb->insert(
 			self::conversations_table(),
 			array(
-				'session_id' => $session_id,
-				'status'     => 'active',
-				'summary'    => '',
-				'created_at' => $now,
-				'updated_at' => $now,
+				'customer_id' => $customer_id,
+				'session_id'  => $session_id,
+				'status'      => 'active',
+				'summary'     => '',
+				'created_at'  => $now,
+				'updated_at'  => $now,
 			),
 			array(
+				'%d',
 				'%s',
 				'%s',
 				'%s',
@@ -162,24 +179,160 @@ class WP_RapidRescue_Chat_Conversation {
 	/**
 	 * Get an existing conversation or create one.
 	 *
-	 * @param string $session_id Browser session identifier.
+	 * @param string   $session_id Browser session identifier.
+	 * @param int|null $customer_id Optional customer ID.
 	 * @return object|WP_Error
 	 */
-	public static function get_or_create( $session_id ) {
+	public static function get_or_create(
+		$session_id,
+		$customer_id = null
+	) {
 
 		$conversation = self::get_by_session( $session_id );
 
 		if ( $conversation ) {
+
+			/*
+			 * If this conversation was previously anonymous and we now
+			 * know the customer, associate it with that customer.
+			 */
+			if (
+				empty( $conversation->customer_id ) &&
+				absint( $customer_id ) > 0
+			) {
+				self::assign_customer(
+					$conversation->id,
+					$customer_id
+				);
+
+				$conversation = self::get_by_session( $session_id );
+			}
+
 			return $conversation;
 		}
 
-		$conversation_id = self::create( $session_id );
+		$conversation_id = self::create(
+			$session_id,
+			$customer_id
+		);
 
 		if ( is_wp_error( $conversation_id ) ) {
 			return $conversation_id;
 		}
 
 		return self::get_by_session( $session_id );
+	}
+
+	/**
+	 * Assign a customer to a conversation.
+	 *
+	 * @param int $conversation_id Conversation ID.
+	 * @param int $customer_id Customer ID.
+	 * @return bool|WP_Error
+	 */
+	public static function assign_customer(
+		$conversation_id,
+		$customer_id
+	) {
+
+		global $wpdb;
+
+		$conversation_id = absint( $conversation_id );
+		$customer_id     = absint( $customer_id );
+
+		if ( $conversation_id < 1 ) {
+			return new WP_Error(
+				'invalid_conversation',
+				'Invalid conversation.'
+			);
+		}
+
+		if ( $customer_id < 1 ) {
+			return new WP_Error(
+				'invalid_customer',
+				'Invalid customer.'
+			);
+		}
+
+		$conversation = self::get_by_id( $conversation_id );
+
+		if ( ! $conversation ) {
+			return new WP_Error(
+				'conversation_not_found',
+				'Conversation not found.'
+			);
+		}
+
+		$result = $wpdb->update(
+			self::conversations_table(),
+			array(
+				'customer_id' => $customer_id,
+				'updated_at'  => current_time( 'mysql', true ),
+			),
+			array(
+				'id' => $conversation_id,
+			),
+			array(
+				'%d',
+				'%s',
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $result ) {
+			return new WP_Error(
+				'conversation_customer_update_failed',
+				'The conversation could not be associated with the customer.'
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Get conversations belonging to a customer.
+	 *
+	 * @param int $customer_id Customer ID.
+	 * @param int $limit Number of conversations.
+	 * @return array
+	 */
+	public static function get_by_customer(
+		$customer_id,
+		$limit = 50
+	) {
+
+		global $wpdb;
+
+		$customer_id = absint( $customer_id );
+		$limit       = absint( $limit );
+
+		if ( $customer_id < 1 ) {
+			return array();
+		}
+
+		if ( $limit < 1 ) {
+			$limit = 50;
+		}
+
+		if ( $limit > 100 ) {
+			$limit = 100;
+		}
+
+		$table = self::conversations_table();
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT *
+				FROM {$table}
+				WHERE customer_id = %d
+				ORDER BY updated_at DESC
+				LIMIT %d",
+				$customer_id,
+				$limit
+			)
+		);
 	}
 
 	/**
