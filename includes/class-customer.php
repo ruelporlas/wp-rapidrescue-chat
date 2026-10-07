@@ -31,7 +31,6 @@ class WP_RapidRescue_Chat_Customer {
 	 * @return void
 	 */
 	public static function create_table() {
-
 		global $wpdb;
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -57,8 +56,8 @@ class WP_RapidRescue_Chat_Customer {
 	/**
 	 * Create a customer.
 	 *
-	 * @param string $name Customer name.
-	 * @param string $email Customer email.
+	 * @param string $name     Customer name.
+	 * @param string $email    Customer email.
 	 * @param string $site_url Customer website URL.
 	 * @return int|WP_Error
 	 */
@@ -67,12 +66,11 @@ class WP_RapidRescue_Chat_Customer {
 		$email = '',
 		$site_url = ''
 	) {
-
 		global $wpdb;
 
 		$name     = sanitize_text_field( $name );
 		$email    = sanitize_email( $email );
-		$site_url = esc_url_raw( $site_url );
+		$site_url = self::normalize_site_url( $site_url );
 
 		$now = current_time( 'mysql', true );
 
@@ -111,7 +109,6 @@ class WP_RapidRescue_Chat_Customer {
 	 * @return object|null
 	 */
 	public static function get_by_id( $customer_id ) {
-
 		global $wpdb;
 
 		$customer_id = absint( $customer_id );
@@ -124,7 +121,10 @@ class WP_RapidRescue_Chat_Customer {
 
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE id = %d LIMIT 1",
+				"SELECT *
+				FROM {$table}
+				WHERE id = %d
+				LIMIT 1",
 				$customer_id
 			)
 		);
@@ -137,7 +137,6 @@ class WP_RapidRescue_Chat_Customer {
 	 * @return object|null
 	 */
 	public static function get_by_email( $email ) {
-
 		global $wpdb;
 
 		$email = sanitize_email( $email );
@@ -150,7 +149,10 @@ class WP_RapidRescue_Chat_Customer {
 
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE email = %s LIMIT 1",
+				"SELECT *
+				FROM {$table}
+				WHERE email = %s
+				LIMIT 1",
 				$email
 			)
 		);
@@ -162,9 +164,9 @@ class WP_RapidRescue_Chat_Customer {
 	 * Only supplied non-empty values are changed.
 	 *
 	 * @param int    $customer_id Customer ID.
-	 * @param string $name Customer name.
-	 * @param string $email Customer email.
-	 * @param string $site_url Customer website URL.
+	 * @param string $name        Customer name.
+	 * @param string $email       Customer email.
+	 * @param string $site_url    Customer website URL.
 	 * @return bool|WP_Error
 	 */
 	public static function update(
@@ -173,7 +175,6 @@ class WP_RapidRescue_Chat_Customer {
 		$email = '',
 		$site_url = ''
 	) {
-
 		global $wpdb;
 
 		$customer_id = absint( $customer_id );
@@ -211,7 +212,7 @@ class WP_RapidRescue_Chat_Customer {
 			$formats[]     = '%s';
 		}
 
-		$site_url = esc_url_raw( $site_url );
+		$site_url = self::normalize_site_url( $site_url );
 
 		if ( '' !== $site_url ) {
 			$data['site_url'] = $site_url;
@@ -250,14 +251,10 @@ class WP_RapidRescue_Chat_Customer {
 	/**
 	 * Extract identity information from a customer message.
 	 *
-	 * This is intentionally conservative. The application only uses
-	 * information that can be recognized with reasonable confidence.
-	 *
 	 * @param string $message Customer message.
 	 * @return array
 	 */
 	public static function extract_identity( $message ) {
-
 		$message = sanitize_textarea_field( $message );
 
 		$identity = array(
@@ -288,7 +285,7 @@ class WP_RapidRescue_Chat_Customer {
 		}
 
 		/*
-		 * Website URL.
+		 * Explicit HTTP/HTTPS URL.
 		 */
 		if (
 			preg_match(
@@ -297,9 +294,31 @@ class WP_RapidRescue_Chat_Customer {
 				$matches
 			)
 		) {
-			$url = esc_url_raw(
+			$url = self::normalize_site_url(
 				rtrim(
 					$matches[0],
+					'.,!?;:)'
+				)
+			);
+
+			if ( '' !== $url ) {
+				$identity['site_url'] = $url;
+			}
+		} elseif (
+			/*
+			 * Bare domains such as:
+			 * mywebsite.com
+			 * www.mywebsite.com
+			 */
+			preg_match(
+				'~(?<![@\w-])((?:www\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,}(?:/[^\s<>"\']*)?)~i',
+				$message,
+				$matches
+			)
+		) {
+			$url = self::normalize_site_url(
+				rtrim(
+					$matches[1],
 					'.,!?;:)'
 				)
 			);
@@ -312,13 +331,7 @@ class WP_RapidRescue_Chat_Customer {
 		/*
 		 * Name.
 		 *
-		 * Only accept common explicit introductions such as:
-		 * "My name is Ruel"
-		 * "I'm Ruel"
-		 * "I am Ruel"
-		 *
-		 * We do not attempt to guess a person's name from arbitrary
-		 * text because that could create incorrect customer records.
+		 * Only accept common explicit introductions.
 		 */
 		if (
 			preg_match(
@@ -341,6 +354,19 @@ class WP_RapidRescue_Chat_Customer {
 				$name
 			);
 
+			/*
+			 * Stop common conversational continuations from becoming
+			 * part of the customer's name.
+			 */
+			$name = preg_split(
+				'/\b(?:and|but|because|since|from|with|who|that|i)\b/i',
+				$name
+			);
+
+			$name = isset( $name[0] )
+				? trim( $name[0] )
+				: '';
+
 			$name = sanitize_text_field( $name );
 
 			if ( '' !== $name ) {
@@ -357,10 +383,9 @@ class WP_RapidRescue_Chat_Customer {
 	 * Email is required before a customer record is created.
 	 *
 	 * @param array $identity Identity information.
-	 * @return int|null|WP_Error Customer ID, null if insufficient identity, or error.
+	 * @return int|null|WP_Error
 	 */
 	public static function find_or_create_from_identity( $identity ) {
-
 		if ( ! is_array( $identity ) ) {
 			return null;
 		}
@@ -374,7 +399,7 @@ class WP_RapidRescue_Chat_Customer {
 			: '';
 
 		$site_url = isset( $identity['site_url'] )
-			? esc_url_raw( $identity['site_url'] )
+			? self::normalize_site_url( $identity['site_url'] )
 			: '';
 
 		/*
@@ -387,7 +412,6 @@ class WP_RapidRescue_Chat_Customer {
 		$customer = self::get_by_email( $email );
 
 		if ( $customer ) {
-
 			$updated = self::update(
 				$customer->id,
 				$name,
@@ -407,5 +431,33 @@ class WP_RapidRescue_Chat_Customer {
 			$email,
 			$site_url
 		);
+	}
+
+	/**
+	 * Normalize a customer website URL.
+	 *
+	 * @param string $url Website URL.
+	 * @return string
+	 */
+	private static function normalize_site_url( $url ) {
+		$url = trim( (string) $url );
+
+		if ( '' === $url ) {
+			return '';
+		}
+
+		/*
+		 * Add HTTPS to bare domains.
+		 */
+		if (
+			! preg_match(
+				'~^[a-z][a-z0-9+\-.]*://~i',
+				$url
+			)
+		) {
+			$url = 'https://' . $url;
+		}
+
+		return esc_url_raw( $url );
 	}
 }

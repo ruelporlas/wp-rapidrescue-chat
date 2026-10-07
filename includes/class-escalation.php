@@ -17,11 +17,15 @@ class WP_RapidRescue_Chat_Escalation {
 	/**
 	 * Create a support ticket from a conversation.
 	 *
+	 * IMPORTANT:
+	 * This method requires a real customer record. The customer record
+	 * currently requires an email address.
+	 *
 	 * @param int    $conversation_id Conversation ID.
-	 * @param int    $customer_id Customer ID.
-	 * @param string $subject Ticket subject.
-	 * @param string $summary Ticket summary.
-	 * @param string $priority Ticket priority.
+	 * @param int    $customer_id     Customer ID.
+	 * @param string $subject         Ticket subject.
+	 * @param string $summary         Ticket summary.
+	 * @param string $priority        Ticket priority.
 	 * @return array|WP_Error
 	 */
 	public static function create_ticket(
@@ -31,37 +35,25 @@ class WP_RapidRescue_Chat_Escalation {
 		$summary = '',
 		$priority = 'normal'
 	) {
+		$conversation_id = absint( $conversation_id );
+		$customer_id     = absint( $customer_id );
 
-		$conversation_id = absint(
-			$conversation_id
-		);
+		$subject = sanitize_text_field( $subject );
+		$summary = sanitize_textarea_field( $summary );
+		$priority = sanitize_key( $priority );
 
-		$customer_id = $customer_id
-			? absint( $customer_id )
-			: null;
-
-		$subject = sanitize_text_field(
-			$subject
-		);
-
-		$summary = sanitize_textarea_field(
-			$summary
-		);
-
-		$priority = sanitize_key(
-			$priority
-		);
-
-		if ( ! in_array(
-			$priority,
-			array(
-				'low',
-				'normal',
-				'high',
-				'urgent',
-			),
-			true
-		) ) {
+		if (
+			! in_array(
+				$priority,
+				array(
+					'low',
+					'normal',
+					'high',
+					'urgent',
+				),
+				true
+			)
+		) {
 			$priority = 'normal';
 		}
 
@@ -84,12 +76,40 @@ class WP_RapidRescue_Chat_Escalation {
 			);
 		}
 
-		if (
-			! $customer_id &&
-			! empty( $conversation->customer_id )
-		) {
+		if ( ! $customer_id ) {
 			$customer_id = absint(
 				$conversation->customer_id
+			);
+		}
+
+		/*
+		 * A ticket cannot be created without a real customer record.
+		 * The current customer model requires an email address before
+		 * creating that record.
+		 */
+		if ( ! $customer_id ) {
+			return new WP_Error(
+				'customer_identity_required',
+				'An email address is required before a support ticket can be created.'
+			);
+		}
+
+		$customer =
+			WP_RapidRescue_Chat_Customer::get_by_id(
+				$customer_id
+			);
+
+		if ( ! $customer ) {
+			return new WP_Error(
+				'customer_not_found',
+				'The customer could not be confirmed.'
+			);
+		}
+
+		if ( empty( $customer->email ) ) {
+			return new WP_Error(
+				'customer_email_required',
+				'An email address is required before a support ticket can be created.'
 			);
 		}
 
@@ -101,32 +121,21 @@ class WP_RapidRescue_Chat_Escalation {
 		}
 
 		if ( '' === trim( $subject ) ) {
-			$subject =
-				'Customer support request';
+			$subject = 'Customer support request';
 		}
 
 		/*
-		 * This method is only called when the AI has classified
-		 * the issue as a genuinely new support issue.
-		 *
-		 * Existing tickets are handled separately by REST API
-		 * verification.
+		 * The AI has classified this as a genuinely new issue.
+		 * Existing-ticket handling is performed separately by REST.
 		 */
-		$result =
-			WP_RapidRescue_Chat_Ticket::create_from_conversation(
-				$conversation_id,
-				$customer_id,
-				$subject,
-				$summary,
-				$priority,
-				true
-			);
-
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		return $result;
+		return WP_RapidRescue_Chat_Ticket::create_from_conversation(
+			$conversation_id,
+			$customer_id,
+			$subject,
+			$summary,
+			$priority,
+			true
+		);
 	}
 
 	/**
@@ -135,10 +144,7 @@ class WP_RapidRescue_Chat_Escalation {
 	 * @param int $conversation_id Conversation ID.
 	 * @return string
 	 */
-	private static function build_summary(
-		$conversation_id
-	) {
-
+	private static function build_summary( $conversation_id ) {
 		$messages =
 			WP_RapidRescue_Chat_Conversation::get_recent_messages(
 				$conversation_id,
@@ -152,19 +158,12 @@ class WP_RapidRescue_Chat_Escalation {
 		$summary_lines = array();
 
 		foreach ( $messages as $message ) {
-
-			$role = isset(
-				$message->role
-			)
+			$role = isset( $message->role )
 				? $message->role
 				: '';
 
-			$content = isset(
-				$message->message
-			)
-				? trim(
-					$message->message
-				)
+			$content = isset( $message->message )
+				? trim( $message->message )
 				: '';
 
 			if ( '' === $content ) {
@@ -199,32 +198,20 @@ class WP_RapidRescue_Chat_Escalation {
 	 * @param array $result Ticket creation result.
 	 * @return string
 	 */
-	public static function get_confirmation_message(
-		$result
-	) {
-
+	public static function get_confirmation_message( $result ) {
 		if ( ! is_array( $result ) ) {
 			return '';
 		}
 
-		$ticket_key = isset(
-			$result['ticket_key']
-		)
-			? sanitize_text_field(
-				$result['ticket_key']
-			)
+		$ticket_key = isset( $result['ticket_key'] )
+			? sanitize_text_field( $result['ticket_key'] )
 			: '';
 
 		if ( '' === $ticket_key ) {
 			return '';
 		}
 
-		if (
-			! empty(
-				$result['already_exists']
-			)
-		) {
-
+		if ( ! empty( $result['already_exists'] ) ) {
 			return sprintf(
 				'Your support request is already with our support team. Your ticket number is %s.',
 				$ticket_key
