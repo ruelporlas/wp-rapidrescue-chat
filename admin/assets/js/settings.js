@@ -1,30 +1,77 @@
 document.addEventListener('DOMContentLoaded', function () {
+	'use strict';
+
+	/*
+	 * AI provider selector.
+	 */
 	const providerSelect = document.querySelector(
 		'select[name="wp_rapidrescue_chat_settings[ai_provider]"]'
 	);
 
-	const openaiFields = document.querySelectorAll(
+	/*
+	 * Get the complete settings row containing a provider field.
+	 *
+	 * WordPress Settings API normally places each setting inside
+	 * a <tr>. Hiding the complete row prevents the field label from
+	 * remaining visible when the field itself is hidden.
+	 */
+	function getSettingRows(selector) {
+
+		const elements = document.querySelectorAll(selector);
+		const rows = [];
+
+		elements.forEach(function (element) {
+
+			const row = element.closest('tr');
+
+			if (row && !rows.includes(row)) {
+				rows.push(row);
+			}
+		});
+
+		return rows;
+	}
+
+	const openaiRows = getSettingRows(
 		'.rr-provider-openai'
 	);
 
-	const geminiFields = document.querySelectorAll(
+	const geminiRows = getSettingRows(
 		'.rr-provider-gemini'
 	);
 
-	if (providerSelect) {
-		function updateProviderFields() {
-			const provider = providerSelect.value;
+	/*
+	 * Show only the settings belonging to the selected provider.
+	 */
+	function updateProviderFields() {
 
-			openaiFields.forEach(function (field) {
-				field.style.display =
-					provider === 'openai' ? '' : 'none';
-			});
-
-			geminiFields.forEach(function (field) {
-				field.style.display =
-					provider === 'gemini' ? '' : 'none';
-			});
+		if (!providerSelect) {
+			return;
 		}
+
+		const provider = providerSelect.value;
+
+		openaiRows.forEach(function (row) {
+
+			row.style.display =
+				provider === 'openai'
+					? ''
+					: 'none';
+		});
+
+		geminiRows.forEach(function (row) {
+
+			row.style.display =
+				provider === 'gemini'
+					? ''
+					: 'none';
+		});
+	}
+
+	/*
+	 * Initialize provider fields.
+	 */
+	if (providerSelect) {
 
 		providerSelect.addEventListener(
 			'change',
@@ -34,6 +81,9 @@ document.addEventListener('DOMContentLoaded', function () {
 		updateProviderFields();
 	}
 
+	/*
+	 * AI connection test.
+	 */
 	const testButton = document.querySelector(
 		'#wp-rapidrescue-test-ai-connection'
 	);
@@ -63,8 +113,11 @@ document.addEventListener('DOMContentLoaded', function () {
 		testButton.disabled = true;
 		testButton.textContent = 'Testing...';
 
-		testResult.innerHTML = '';
-		testResult.className = '';
+		testResult.className =
+			'notice inline';
+
+		testResult.innerHTML =
+			'<p>Testing AI connection...</p>';
 
 		const formData = new FormData();
 
@@ -87,35 +140,13 @@ document.addEventListener('DOMContentLoaded', function () {
 			}
 		)
 			.then(function (response) {
-
-				return response.json()
-					.then(function (data) {
-
-						return {
-							ok: response.ok,
-							status: response.status,
-							data: data
-						};
-					})
-					.catch(function () {
-
-						return {
-							ok: false,
-							status: response.status,
-							data: null
-						};
-					});
+				return response.json();
 			})
-			.then(function (result) {
+			.then(function (data) {
 
-				const data = result.data;
+				if (data.success) {
 
-				if (
-					result.ok &&
-					data &&
-					data.success
-				) {
-					const responseData = data.data || {};
+					const result = data.data || {};
 
 					testResult.className =
 						'notice notice-success inline';
@@ -124,47 +155,30 @@ document.addEventListener('DOMContentLoaded', function () {
 						'<p><strong>Connection successful.</strong></p>' +
 						'<p>' +
 						'Provider: ' +
-						escapeHtml(responseData.provider) +
+						escapeHtml(result.provider) +
 						'<br>' +
 						'Model: ' +
-						escapeHtml(responseData.model) +
+						escapeHtml(result.model) +
 						'<br>' +
 						'Response: ' +
-						escapeHtml(responseData.response) +
+						escapeHtml(result.response) +
 						'</p>';
 
 					return;
 				}
 
-				let message =
-					'The AI connection test failed.';
-
-				if (
-					data &&
+				const message =
 					data.data &&
 					data.data.message
-				) {
-					message = data.data.message;
-				}
-
-				if (
-					!result.ok &&
-					!data
-				) {
-					message =
-						'WordPress returned HTTP ' +
-						result.status +
-						' without a readable error message.';
-				}
+						? data.data.message
+						: 'The AI connection test failed.';
 
 				showError(message);
 			})
-			.catch(function (error) {
+			.catch(function () {
 
 				showError(
-					error && error.message
-						? error.message
-						: 'WordPress could not complete the connection test.'
+					'WordPress could not complete the connection test.'
 				);
 			})
 			.finally(function () {
@@ -175,6 +189,11 @@ document.addEventListener('DOMContentLoaded', function () {
 			});
 	});
 
+	/**
+	 * Display an error.
+	 *
+	 * @param {string} message Error message.
+	 */
 	function showError(message) {
 
 		testResult.className =
@@ -187,6 +206,12 @@ document.addEventListener('DOMContentLoaded', function () {
 			'</p>';
 	}
 
+	/**
+	 * Escape HTML.
+	 *
+	 * @param {*} value Value to escape.
+	 * @return {string} Escaped value.
+	 */
 	function escapeHtml(value) {
 
 		const div = document.createElement('div');
