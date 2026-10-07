@@ -443,4 +443,55 @@ class WP_RapidRescue_Chat_Plugin {
 			)
 		);
 	}
+
+	/**
+ * Plugin activation.
+ *
+ * @return void
+ */
+public static function activate() {
+
+	$defaults =
+		WP_RapidRescue_Chat_Settings::get_defaults();
+
+	$existing =
+		get_option(
+			WP_RapidRescue_Chat_Settings::OPTION_NAME,
+			false
+		);
+
+	if ( false === $existing ) {
+
+		add_option(
+			WP_RapidRescue_Chat_Settings::OPTION_NAME,
+			$defaults
+		);
+
+		return;
+	}
+
+	if ( ! is_array( $existing ) ) {
+		$existing = array();
+	}
+
+	$merged =
+		wp_parse_args(
+			$existing,
+			$defaults
+		);
+
+	update_option(
+		WP_RapidRescue_Chat_Settings::OPTION_NAME,
+		$merged
+	);
+}
+
+/**
+ * Plugin deactivation.
+ *
+ * @return void
+ */
+public static function deactivate() {
+	// No cleanup is performed on deactivation.
+}
 }

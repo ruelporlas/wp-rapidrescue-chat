@@ -22,6 +22,36 @@ class WP_RapidRescue_Chat_Settings {
 	const OPTION_NAME = 'wp_rapidrescue_chat_settings';
 
 	/**
+	 * Get the default settings.
+	 *
+	 * These defaults are intentionally business-agnostic.
+	 *
+	 * @return array
+	 */
+	public static function get_defaults() {
+
+		return array(
+			'ai_provider'            => 'openai',
+			'openai_api_key'         => '',
+			'openai_model'           => 'gpt-6-luna',
+			'gemini_api_key'         => '',
+			'gemini_model'           => 'gemini-3.8-flash',
+
+			'ai_assistant_role'      => 'AI customer assistant',
+
+			'ai_primary_goal'        => 'Understand the customer\'s needs, provide helpful and accurate information using the approved business knowledge, and guide the customer toward the appropriate next step.',
+
+			'ai_conversation_style'  => 'Friendly, professional, natural, and easy to understand. Keep responses focused and concise while providing enough detail to be useful.',
+
+			'ai_behavior'            => 'Understand the customer\'s request before responding. Answer the customer\'s question directly. Ask relevant follow-up questions when important information is missing. Use conversation history to maintain context and avoid asking for information the customer has already provided.',
+
+			'ai_avoid'               => 'Do not pressure the customer, make unnecessary recommendations, repeat questions, make unsupported assumptions, or provide information that has not been confirmed.',
+
+			'ai_escalation'          => 'When the customer\'s request requires human assistance or cannot be confidently handled using the available information, explain that human assistance may be needed and guide the customer through the next appropriate step. Never claim that an escalation or other action has been completed unless the application has confirmed it.',
+		);
+	}
+
+	/**
 	 * Register settings.
 	 *
 	 * @return void
@@ -34,19 +64,7 @@ class WP_RapidRescue_Chat_Settings {
 			array(
 				'type'              => 'array',
 				'sanitize_callback' => array( __CLASS__, 'sanitize' ),
-				'default'           => array(
-					'ai_provider'             => 'openai',
-					'openai_api_key'         => '',
-					'openai_model'           => 'gpt-6-luna',
-					'gemini_api_key'         => '',
-					'gemini_model'           => 'gemini-3.8-flash',
-					'ai_assistant_role'      => 'professional AI assistant',
-					'ai_primary_goal'        => 'Understand the customer\'s needs, provide accurate information from the business knowledge base, help when possible, and guide the customer toward the appropriate next step.',
-					'ai_conversation_style'  => 'Friendly, professional, natural, and concise. Ask relevant questions instead of overwhelming the customer with unnecessary information.',
-					'ai_behavior'             => 'Understand the customer\'s situation before recommending products, services, pricing, or next steps. Answer the customer\'s actual question first. Ask follow-up questions when important information is missing. Use conversation history to maintain context.',
-					'ai_avoid'                => 'Do not pressure the customer into buying something. Do not introduce pricing unnecessarily. Do not repeatedly ask for information the customer has already provided. Do not make assumptions when important information is unknown.',
-					'ai_escalation'           => 'When the customer needs human assistance, explain that escalation is available and collect the information required by the application. Do not claim that a ticket, escalation, appointment, order, or other action has been completed unless the application has actually confirmed it.',
-				),
+				'default'           => self::get_defaults(),
 			)
 		);
 
@@ -78,7 +96,7 @@ class WP_RapidRescue_Chat_Settings {
 			'OpenAI Model',
 			array( __CLASS__, 'render_openai_model_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_ai_section'
+			'wp-rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -133,7 +151,7 @@ class WP_RapidRescue_Chat_Settings {
 			'Behavior Instructions',
 			array( __CLASS__, 'render_behavior_field' ),
 			'wp-rapidrescue-chat',
-			'wp_rapidrescue_chat_skill_section'
+			'wp-rapidrescue_chat_skill_section'
 		);
 
 		add_settings_field(
@@ -168,11 +186,13 @@ class WP_RapidRescue_Chat_Settings {
 			array()
 		);
 
+		$defaults = self::get_defaults();
+
 		$sanitized = array();
 
 		$sanitized['ai_provider'] = isset( $input['ai_provider'] )
 			? sanitize_key( $input['ai_provider'] )
-			: 'openai';
+			: $defaults['ai_provider'];
 
 		$sanitized['openai_api_key'] = isset( $input['openai_api_key'] )
 			? sanitize_text_field( $input['openai_api_key'] )
@@ -180,7 +200,7 @@ class WP_RapidRescue_Chat_Settings {
 
 		$sanitized['openai_model'] = isset( $input['openai_model'] )
 			? sanitize_text_field( $input['openai_model'] )
-			: 'gpt-6-luna';
+			: $defaults['openai_model'];
 
 		$sanitized['gemini_api_key'] = isset( $input['gemini_api_key'] )
 			? sanitize_text_field( $input['gemini_api_key'] )
@@ -188,10 +208,10 @@ class WP_RapidRescue_Chat_Settings {
 
 		$sanitized['gemini_model'] = isset( $input['gemini_model'] )
 			? sanitize_text_field( $input['gemini_model'] )
-			: 'gemini-3.8-flash';
+			: $defaults['gemini_model'];
 
 		/*
-		 * Preserve an existing API key if the field is left blank.
+		 * Preserve existing API keys when the password field is left blank.
 		 */
 		if (
 			empty( $sanitized['openai_api_key'] ) &&
@@ -211,48 +231,29 @@ class WP_RapidRescue_Chat_Settings {
 
 		/*
 		 * AI Assistant Skill settings.
+		 *
+		 * If a field is submitted empty, restore its generic default
+		 * rather than leaving the assistant without instructions.
 		 */
-		$sanitized['ai_assistant_role'] =
-			isset( $input['ai_assistant_role'] )
-				? sanitize_text_field(
-					$input['ai_assistant_role']
-				)
+		$skill_fields = array(
+			'ai_assistant_role'     => 'sanitize_text_field',
+			'ai_primary_goal'       => 'sanitize_textarea_field',
+			'ai_conversation_style' => 'sanitize_textarea_field',
+			'ai_behavior'           => 'sanitize_textarea_field',
+			'ai_avoid'              => 'sanitize_textarea_field',
+			'ai_escalation'         => 'sanitize_textarea_field',
+		);
+
+		foreach ( $skill_fields as $key => $callback ) {
+
+			$value = isset( $input[ $key ] )
+				? call_user_func( $callback, $input[ $key ] )
 				: '';
 
-		$sanitized['ai_primary_goal'] =
-			isset( $input['ai_primary_goal'] )
-				? sanitize_textarea_field(
-					$input['ai_primary_goal']
-				)
-				: '';
-
-		$sanitized['ai_conversation_style'] =
-			isset( $input['ai_conversation_style'] )
-				? sanitize_textarea_field(
-					$input['ai_conversation_style']
-				)
-				: '';
-
-		$sanitized['ai_behavior'] =
-			isset( $input['ai_behavior'] )
-				? sanitize_textarea_field(
-					$input['ai_behavior']
-				)
-				: '';
-
-		$sanitized['ai_avoid'] =
-			isset( $input['ai_avoid'] )
-				? sanitize_textarea_field(
-					$input['ai_avoid']
-				)
-				: '';
-
-		$sanitized['ai_escalation'] =
-			isset( $input['ai_escalation'] )
-				? sanitize_textarea_field(
-					$input['ai_escalation']
-				)
-				: '';
+			$sanitized[ $key ] = '' !== trim( $value )
+				? $value
+				: $defaults[ $key ];
+		}
 
 		return $sanitized;
 	}
@@ -339,6 +340,13 @@ class WP_RapidRescue_Chat_Settings {
 				value="<?php echo esc_attr( $value ); ?>"
 				autocomplete="off"
 			/>
+			<p class="description">
+				<?php
+				echo esc_html(
+					'Enter the API key for the selected OpenAI account. Keep this key private.'
+				);
+				?>
+			</p>
 		</div>
 		<?php
 	}
@@ -388,6 +396,13 @@ class WP_RapidRescue_Chat_Settings {
 				value="<?php echo esc_attr( $value ); ?>"
 				autocomplete="off"
 			/>
+			<p class="description">
+				<?php
+				echo esc_html(
+					'Enter the API key for the selected Google Gemini account. Keep this key private.'
+				);
+				?>
+			</p>
 		</div>
 		<?php
 	}
@@ -431,26 +446,11 @@ class WP_RapidRescue_Chat_Settings {
 	 */
 	public static function render_assistant_role_field() {
 
-		$value = self::get(
+		self::render_text_field(
 			'ai_assistant_role',
-			'professional AI assistant'
+			self::get_defaults()['ai_assistant_role'],
+			'e.g. Describe the role you want the assistant to perform for your business.'
 		);
-
-		?>
-		<input
-			type="text"
-			class="regular-text"
-			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[ai_assistant_role]"
-			value="<?php echo esc_attr( $value ); ?>"
-		/>
-		<p class="description">
-			<?php
-			echo esc_html(
-				'Describe what kind of assistant this should be, for example: sales assistant, customer support assistant, booking assistant, technical helpdesk assistant, or consultant.'
-			);
-			?>
-		</p>
-		<?php
 	}
 
 	/**
@@ -462,7 +462,7 @@ class WP_RapidRescue_Chat_Settings {
 
 		self::render_textarea(
 			'ai_primary_goal',
-			'Describe the main outcome the assistant should help customers achieve.'
+			'e.g. What should the assistant primarily help customers accomplish?'
 		);
 	}
 
@@ -475,7 +475,7 @@ class WP_RapidRescue_Chat_Settings {
 
 		self::render_textarea(
 			'ai_conversation_style',
-			'Describe the desired tone and communication style.'
+			'e.g. Describe the tone, personality, response length, and communication style you want.'
 		);
 	}
 
@@ -488,7 +488,7 @@ class WP_RapidRescue_Chat_Settings {
 
 		self::render_textarea(
 			'ai_behavior',
-			'Describe how the assistant should approach conversations, questions, recommendations, qualification, and other tasks.'
+			'e.g. Describe how the assistant should approach questions, recommendations, follow-up questions, and conversations.'
 		);
 	}
 
@@ -501,7 +501,7 @@ class WP_RapidRescue_Chat_Settings {
 
 		self::render_textarea(
 			'ai_avoid',
-			'List behaviors the assistant should avoid.'
+			'e.g. List behaviors, language, or actions the assistant should avoid.'
 		);
 	}
 
@@ -514,25 +514,59 @@ class WP_RapidRescue_Chat_Settings {
 
 		self::render_textarea(
 			'ai_escalation',
-			'Describe how the assistant should handle situations that require a human or another business process.'
+			'e.g. Explain when the assistant should involve a human and how it should communicate that to the customer.'
 		);
+	}
+
+	/**
+	 * Render a text field.
+	 *
+	 * @param string $key         Setting key.
+	 * @param string $default     Default value.
+	 * @param string $placeholder Placeholder text.
+	 * @return void
+	 */
+	private static function render_text_field(
+		$key,
+		$default,
+		$placeholder
+	) {
+
+		$value = self::get(
+			$key,
+			$default
+		);
+
+		?>
+		<input
+			type="text"
+			class="regular-text"
+			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[<?php echo esc_attr( $key ); ?>]"
+			value="<?php echo esc_attr( $value ); ?>"
+			placeholder="<?php echo esc_attr( $placeholder ); ?>"
+		/>
+		<?php
 	}
 
 	/**
 	 * Render a skill textarea.
 	 *
 	 * @param string $key         Setting key.
-	 * @param string $description Field description.
+	 * @param string $placeholder Placeholder text.
 	 * @return void
 	 */
 	private static function render_textarea(
 		$key,
-		$description
+		$placeholder
 	) {
+
+		$defaults = self::get_defaults();
 
 		$value = self::get(
 			$key,
-			''
+			isset( $defaults[ $key ] )
+				? $defaults[ $key ]
+				: ''
 		);
 
 		?>
@@ -540,10 +574,11 @@ class WP_RapidRescue_Chat_Settings {
 			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[<?php echo esc_attr( $key ); ?>]"
 			rows="5"
 			class="large-text"
+			placeholder="<?php echo esc_attr( $placeholder ); ?>"
 		><?php echo esc_textarea( $value ); ?></textarea>
 
 		<p class="description">
-			<?php echo esc_html( $description ); ?>
+			<?php echo esc_html( $placeholder ); ?>
 		</p>
 		<?php
 	}
@@ -602,7 +637,16 @@ class WP_RapidRescue_Chat_Settings {
 	 */
 	public static function enqueue_admin_assets( $hook_suffix ) {
 
-		if ( 'settings_page_wp-rapidrescue-chat' !== $hook_suffix ) {
+		/*
+		 * Settings is now a submenu under the plugin's top-level menu.
+		 *
+		 * WordPress generates this hook as:
+		 * wp-rapidrescue-chat_page_wp-rapidrescue-chat-settings
+		 */
+		if (
+			'wp-rapidrescue-chat_page_wp-rapidrescue-chat-settings'
+			!== $hook_suffix
+		) {
 			return;
 		}
 
@@ -612,10 +656,6 @@ class WP_RapidRescue_Chat_Settings {
 		$script_url = WP_RAPIDRESCUE_CHAT_URL .
 			'admin/assets/js/settings.js';
 
-		/*
-		 * Use the file modification time during development so the
-		 * browser always receives the latest JavaScript file.
-		 */
 		$script_version = file_exists( $script_path )
 			? filemtime( $script_path )
 			: WP_RAPIDRESCUE_CHAT_VERSION;
