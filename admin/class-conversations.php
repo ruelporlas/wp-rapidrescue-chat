@@ -15,21 +15,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class WP_RapidRescue_Chat_Conversations_Admin {
 
 	/**
-	 * Register the admin menu.
+	 * Kept for compatibility.
+	 *
+	 * The menu is now registered by the main plugin controller.
 	 *
 	 * @return void
 	 */
 	public static function register_menu() {
-
-		add_menu_page(
-			'Conversations',
-			'Conversations',
-			'manage_options',
-			'wp-rapidrescue-conversations',
-			array( __CLASS__, 'render' ),
-			'dashicons-format-chat',
-			26
-		);
+		// Menu registration is handled by WP_RapidRescue_Chat_Plugin.
 	}
 
 	/**
@@ -245,6 +238,7 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 						<th style="width: 180px;">
 							Session ID
 						</th>
+
 						<td>
 							<code>
 								<?php echo esc_html(
@@ -258,6 +252,7 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 						<th>
 							Status
 						</th>
+
 						<td>
 							<?php echo esc_html(
 								ucfirst(
@@ -271,6 +266,7 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 						<th>
 							Created
 						</th>
+
 						<td>
 							<?php echo esc_html(
 								$conversation->created_at
@@ -282,6 +278,7 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 						<th>
 							Last Updated
 						</th>
+
 						<td>
 							<?php echo esc_html(
 								$conversation->updated_at

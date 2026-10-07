@@ -35,11 +35,17 @@ class WP_RapidRescue_Chat_Settings {
 				'type'              => 'array',
 				'sanitize_callback' => array( __CLASS__, 'sanitize' ),
 				'default'           => array(
-					'ai_provider'   => 'openai',
-					'openai_api_key' => '',
-					'openai_model'   => 'gpt-6-luna',
-					'gemini_api_key' => '',
-					'gemini_model'   => 'gemini-3.8-flash',
+					'ai_provider'             => 'openai',
+					'openai_api_key'         => '',
+					'openai_model'           => 'gpt-6-luna',
+					'gemini_api_key'         => '',
+					'gemini_model'           => 'gemini-3.8-flash',
+					'ai_assistant_role'      => 'professional AI assistant',
+					'ai_primary_goal'        => 'Understand the customer\'s needs, provide accurate information from the business knowledge base, help when possible, and guide the customer toward the appropriate next step.',
+					'ai_conversation_style'  => 'Friendly, professional, natural, and concise. Ask relevant questions instead of overwhelming the customer with unnecessary information.',
+					'ai_behavior'             => 'Understand the customer\'s situation before recommending products, services, pricing, or next steps. Answer the customer\'s actual question first. Ask follow-up questions when important information is missing. Use conversation history to maintain context.',
+					'ai_avoid'                => 'Do not pressure the customer into buying something. Do not introduce pricing unnecessarily. Do not repeatedly ask for information the customer has already provided. Do not make assumptions when important information is unknown.',
+					'ai_escalation'           => 'When the customer needs human assistance, explain that escalation is available and collect the information required by the application. Do not claim that a ticket, escalation, appointment, order, or other action has been completed unless the application has actually confirmed it.',
 				),
 			)
 		);
@@ -89,6 +95,61 @@ class WP_RapidRescue_Chat_Settings {
 			array( __CLASS__, 'render_gemini_model_field' ),
 			'wp-rapidrescue-chat',
 			'wp_rapidrescue_chat_ai_section'
+		);
+
+		add_settings_section(
+			'wp_rapidrescue_chat_skill_section',
+			'AI Assistant Skill',
+			array( __CLASS__, 'render_skill_section' ),
+			'wp-rapidrescue-chat'
+		);
+
+		add_settings_field(
+			'ai_assistant_role',
+			'Assistant Role',
+			array( __CLASS__, 'render_assistant_role_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
+		);
+
+		add_settings_field(
+			'ai_primary_goal',
+			'Primary Goal',
+			array( __CLASS__, 'render_primary_goal_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
+		);
+
+		add_settings_field(
+			'ai_conversation_style',
+			'Conversation Style',
+			array( __CLASS__, 'render_conversation_style_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
+		);
+
+		add_settings_field(
+			'ai_behavior',
+			'Behavior Instructions',
+			array( __CLASS__, 'render_behavior_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
+		);
+
+		add_settings_field(
+			'ai_avoid',
+			'Things to Avoid',
+			array( __CLASS__, 'render_avoid_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
+		);
+
+		add_settings_field(
+			'ai_escalation',
+			'Escalation Guidance',
+			array( __CLASS__, 'render_escalation_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_skill_section'
 		);
 	}
 
@@ -148,11 +209,56 @@ class WP_RapidRescue_Chat_Settings {
 				$existing['gemini_api_key'];
 		}
 
+		/*
+		 * AI Assistant Skill settings.
+		 */
+		$sanitized['ai_assistant_role'] =
+			isset( $input['ai_assistant_role'] )
+				? sanitize_text_field(
+					$input['ai_assistant_role']
+				)
+				: '';
+
+		$sanitized['ai_primary_goal'] =
+			isset( $input['ai_primary_goal'] )
+				? sanitize_textarea_field(
+					$input['ai_primary_goal']
+				)
+				: '';
+
+		$sanitized['ai_conversation_style'] =
+			isset( $input['ai_conversation_style'] )
+				? sanitize_textarea_field(
+					$input['ai_conversation_style']
+				)
+				: '';
+
+		$sanitized['ai_behavior'] =
+			isset( $input['ai_behavior'] )
+				? sanitize_textarea_field(
+					$input['ai_behavior']
+				)
+				: '';
+
+		$sanitized['ai_avoid'] =
+			isset( $input['ai_avoid'] )
+				? sanitize_textarea_field(
+					$input['ai_avoid']
+				)
+				: '';
+
+		$sanitized['ai_escalation'] =
+			isset( $input['ai_escalation'] )
+				? sanitize_textarea_field(
+					$input['ai_escalation']
+				)
+				: '';
+
 		return $sanitized;
 	}
 
 	/**
-	 * Render AI settings section.
+	 * Render AI provider settings section.
 	 *
 	 * @return void
 	 */
@@ -160,7 +266,21 @@ class WP_RapidRescue_Chat_Settings {
 
 		echo '<p>';
 		echo esc_html(
-			'Configure the AI provider used by WP RapidRescue Chat.'
+			'Configure the AI provider used by the plugin.'
+		);
+		echo '</p>';
+	}
+
+	/**
+	 * Render AI Assistant Skill section.
+	 *
+	 * @return void
+	 */
+	public static function render_skill_section() {
+
+		echo '<p>';
+		echo esc_html(
+			'Define how the AI should behave for this business. These instructions customize the assistant without changing the plugin\'s core safety and integrity rules.'
 		);
 		echo '</p>';
 	}
@@ -301,6 +421,130 @@ class WP_RapidRescue_Chat_Settings {
 				<?php endforeach; ?>
 			</select>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Render assistant role field.
+	 *
+	 * @return void
+	 */
+	public static function render_assistant_role_field() {
+
+		$value = self::get(
+			'ai_assistant_role',
+			'professional AI assistant'
+		);
+
+		?>
+		<input
+			type="text"
+			class="regular-text"
+			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[ai_assistant_role]"
+			value="<?php echo esc_attr( $value ); ?>"
+		/>
+		<p class="description">
+			<?php
+			echo esc_html(
+				'Describe what kind of assistant this should be, for example: sales assistant, customer support assistant, booking assistant, technical helpdesk assistant, or consultant.'
+			);
+			?>
+		</p>
+		<?php
+	}
+
+	/**
+	 * Render primary goal field.
+	 *
+	 * @return void
+	 */
+	public static function render_primary_goal_field() {
+
+		self::render_textarea(
+			'ai_primary_goal',
+			'Describe the main outcome the assistant should help customers achieve.'
+		);
+	}
+
+	/**
+	 * Render conversation style field.
+	 *
+	 * @return void
+	 */
+	public static function render_conversation_style_field() {
+
+		self::render_textarea(
+			'ai_conversation_style',
+			'Describe the desired tone and communication style.'
+		);
+	}
+
+	/**
+	 * Render behavior field.
+	 *
+	 * @return void
+	 */
+	public static function render_behavior_field() {
+
+		self::render_textarea(
+			'ai_behavior',
+			'Describe how the assistant should approach conversations, questions, recommendations, qualification, and other tasks.'
+		);
+	}
+
+	/**
+	 * Render avoid field.
+	 *
+	 * @return void
+	 */
+	public static function render_avoid_field() {
+
+		self::render_textarea(
+			'ai_avoid',
+			'List behaviors the assistant should avoid.'
+		);
+	}
+
+	/**
+	 * Render escalation field.
+	 *
+	 * @return void
+	 */
+	public static function render_escalation_field() {
+
+		self::render_textarea(
+			'ai_escalation',
+			'Describe how the assistant should handle situations that require a human or another business process.'
+		);
+	}
+
+	/**
+	 * Render a skill textarea.
+	 *
+	 * @param string $key         Setting key.
+	 * @param string $description Field description.
+	 * @return void
+	 */
+	private static function render_textarea(
+		$key,
+		$description
+	) {
+
+		$value = self::get(
+			$key,
+			''
+		);
+
+		?>
+		<textarea
+			name="<?php echo esc_attr( self::OPTION_NAME ); ?>[<?php echo esc_attr( $key ); ?>]"
+			rows="5"
+			class="large-text"
+		><?php echo esc_textarea( $value ); ?></textarea>
+
+		<p class="description">
+			<?php echo esc_html( $description ); ?>
+		</p>
 		<?php
 	}
 

@@ -17,6 +17,11 @@ class WP_RapidRescue_Chat_Knowledge {
 	const POST_TYPE = 'rr_knowledge';
 	const TAXONOMY  = 'rr_knowledge_category';
 
+	/**
+	 * Register Knowledge Base post type and taxonomy.
+	 *
+	 * @return void
+	 */
 	public static function register() {
 
 		register_post_type(
@@ -39,7 +44,7 @@ class WP_RapidRescue_Chat_Knowledge {
 				),
 				'public'              => false,
 				'show_ui'             => true,
-				'show_in_menu'        => true,
+				'show_in_menu'        => 'wp-rapidrescue-chat',
 				'show_in_rest'        => true,
 				'menu_icon'           => 'dashicons-book-alt',
 				'supports'            => array(
@@ -81,7 +86,19 @@ class WP_RapidRescue_Chat_Knowledge {
 		);
 	}
 
-	public static function search( $query = '', $limit = 5, $category = 0 ) {
+	/**
+	 * Search knowledge.
+	 *
+	 * @param string $query    Search query.
+	 * @param int    $limit    Result limit.
+	 * @param int    $category Category ID.
+	 * @return array
+	 */
+	public static function search(
+		$query = '',
+		$limit = 5,
+		$category = 0
+	) {
 
 		$query = sanitize_text_field( $query );
 		$limit = absint( $limit );
@@ -105,6 +122,7 @@ class WP_RapidRescue_Chat_Knowledge {
 		$category = absint( $category );
 
 		if ( $category > 0 ) {
+
 			$args['tax_query'] = array(
 				array(
 					'taxonomy' => self::TAXONOMY,
@@ -139,6 +157,7 @@ class WP_RapidRescue_Chat_Knowledge {
 				$posts = get_posts( $args );
 			}
 		} else {
+
 			$posts = get_posts( $args );
 		}
 
