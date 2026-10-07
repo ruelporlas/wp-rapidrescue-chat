@@ -10,13 +10,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Manages AI providers and knowledge context.
+ * Manages AI providers and conversation context.
  */
 class WP_RapidRescue_Chat_AI {
 
 	private static $providers = array();
 
-	public static function respond( $message ) {
+	public static function respond( $message, $history = array() ) {
 
 		$message = sanitize_textarea_field( $message );
 
@@ -45,18 +45,59 @@ class WP_RapidRescue_Chat_AI {
 
 		$prompt = self::build_prompt(
 			$message,
-			$knowledge
+			$knowledge,
+			$history
 		);
 
 		return $provider->respond( $prompt );
 	}
 
-	private static function build_prompt( $message, $knowledge ) {
+	private static function build_prompt(
+		$message,
+		$knowledge,
+		$history
+	) {
 
 		$prompt = array();
 
+		$prompt[] = 'RECENT CONVERSATION HISTORY:';
+
+		if ( empty( $history ) ) {
+
+			$prompt[] =
+				'No previous conversation messages.';
+
+		} else {
+
+			foreach ( $history as $item ) {
+
+				$role =
+					isset( $item->role )
+						? $item->role
+						: '';
+
+				$content =
+					isset( $item->message )
+						? $item->message
+						: '';
+
+				if ( 'user' === $role ) {
+					$role = 'Customer';
+				} elseif ( 'assistant' === $role ) {
+					$role = 'Assistant';
+				} else {
+					$role = 'Unknown';
+				}
+
+				$prompt[] =
+					$role . ': ' . $content;
+			}
+		}
+
+		$prompt[] = '';
+
 		$prompt[] =
-			'CUSTOMER MESSAGE:';
+			'CURRENT CUSTOMER MESSAGE:';
 
 		$prompt[] =
 			$message;
@@ -75,19 +116,22 @@ class WP_RapidRescue_Chat_AI {
 
 			foreach ( $knowledge as $entry ) {
 
-				$title = isset( $entry['title'] )
-					? $entry['title']
-					: '';
+				$title =
+					isset( $entry['title'] )
+						? $entry['title']
+						: '';
 
-				$content = isset( $entry['content'] )
-					? wp_strip_all_tags(
-						$entry['content']
-					)
-					: '';
+				$content =
+					isset( $entry['content'] )
+						? wp_strip_all_tags(
+							$entry['content']
+						)
+						: '';
 
-				$categories = isset( $entry['categories'] )
-					? $entry['categories']
-					: array();
+				$categories =
+					isset( $entry['categories'] )
+						? $entry['categories']
+						: array();
 
 				$prompt[] =
 					'--- Knowledge Entry ---';
@@ -117,6 +161,12 @@ class WP_RapidRescue_Chat_AI {
 
 		$prompt[] =
 			'INSTRUCTIONS:';
+
+		$prompt[] =
+			'Use the recent conversation history to understand context and remember information the customer has provided.';
+
+		$prompt[] =
+			'If the customer provided personal information such as their name earlier in the conversation, you may use that information naturally when relevant.';
 
 		$prompt[] =
 			'Use the confirmed knowledge above when answering questions about WP RapidRescue.';

@@ -14,25 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_Knowledge {
 
-	/**
-	 * Knowledge post type.
-	 *
-	 * @var string
-	 */
 	const POST_TYPE = 'rr_knowledge';
+	const TAXONOMY  = 'rr_knowledge_category';
 
-	/**
-	 * Knowledge category taxonomy.
-	 *
-	 * @var string
-	 */
-	const TAXONOMY = 'rr_knowledge_category';
-
-	/**
-	 * Register the knowledge base post type and taxonomy.
-	 *
-	 * @return void
-	 */
 	public static function register() {
 
 		register_post_type(
@@ -97,16 +81,6 @@ class WP_RapidRescue_Chat_Knowledge {
 		);
 	}
 
-	/**
-	 * Search the knowledge base.
-	 *
-	 * Searches published knowledge entries by title and content.
-	 *
-	 * @param string $query    Search query.
-	 * @param int    $limit    Maximum number of results.
-	 * @param int    $category Optional knowledge category term ID.
-	 * @return array
-	 */
 	public static function search( $query = '', $limit = 5, $category = 0 ) {
 
 		$query = sanitize_text_field( $query );
@@ -126,7 +100,6 @@ class WP_RapidRescue_Chat_Knowledge {
 			'posts_per_page'      => $limit,
 			'no_found_rows'       => true,
 			'ignore_sticky_posts' => true,
-			's'                   => $query,
 		);
 
 		$category = absint( $category );
@@ -141,7 +114,34 @@ class WP_RapidRescue_Chat_Knowledge {
 			);
 		}
 
-		$posts = get_posts( $args );
+		/*
+		 * First try WordPress's normal search.
+		 */
+		if ( '' !== $query ) {
+
+			$args['s'] = $query;
+
+			$posts = get_posts( $args );
+
+			/*
+			 * If WordPress search did not find anything,
+			 * fall back to all published knowledge entries.
+			 *
+			 * This is important because the AI will perform
+			 * the relevance matching, not WordPress.
+			 */
+			if ( empty( $posts ) ) {
+
+				unset( $args['s'] );
+
+				$args['posts_per_page'] = $limit;
+
+				$posts = get_posts( $args );
+			}
+		} else {
+			$posts = get_posts( $args );
+		}
+
 		$results = array();
 
 		foreach ( $posts as $post ) {
@@ -157,8 +157,13 @@ class WP_RapidRescue_Chat_Knowledge {
 			$results[] = array(
 				'id'         => $post->ID,
 				'title'      => get_the_title( $post ),
-				'content'    => apply_filters( 'the_content', $post->post_content ),
-				'categories' => is_wp_error( $categories ) ? array() : $categories,
+				'content'    => apply_filters(
+					'the_content',
+					$post->post_content
+				),
+				'categories' => is_wp_error( $categories )
+					? array()
+					: $categories,
 			);
 		}
 

@@ -16,11 +16,6 @@ class WP_RapidRescue_Chat_Plugin {
 
 	private static $instance = null;
 
-	/**
-	 * Get the plugin instance.
-	 *
-	 * @return WP_RapidRescue_Chat_Plugin
-	 */
 	public static function instance() {
 
 		if ( null === self::$instance ) {
@@ -30,12 +25,14 @@ class WP_RapidRescue_Chat_Plugin {
 		return self::$instance;
 	}
 
-	/**
-	 * Constructor.
-	 */
 	private function __construct() {
 
 		$this->load_dependencies();
+
+		/*
+		 * Create/update plugin database tables.
+		 */
+		WP_RapidRescue_Chat_Conversation::create_tables();
 
 		add_action(
 			'init',
@@ -84,15 +81,17 @@ class WP_RapidRescue_Chat_Plugin {
 				'register_routes',
 			)
 		);
+		add_action(
+	'admin_menu',
+	array(
+		'WP_RapidRescue_Chat_Conversations_Admin',
+		'register_menu',
+	)
+);
 
 		WP_RapidRescue_Chat_Chat_Widget::init();
 	}
 
-	/**
-	 * Load plugin dependencies.
-	 *
-	 * @return void
-	 */
 	private function load_dependencies() {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
@@ -100,6 +99,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-knowledge.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-conversation.php';
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/ai/class-provider.php';
@@ -118,13 +120,10 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'public/class-chat-widget.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'admin/class-conversations.php';	
 	}
 
-	/**
-	 * Register the plugin admin menu.
-	 *
-	 * @return void
-	 */
 	public function register_admin_menu() {
 
 		add_options_page(
@@ -139,11 +138,6 @@ class WP_RapidRescue_Chat_Plugin {
 		);
 	}
 
-	/**
-	 * Render the settings page.
-	 *
-	 * @return void
-	 */
 	public function render_settings_page() {
 
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -202,11 +196,6 @@ class WP_RapidRescue_Chat_Plugin {
 		<?php
 	}
 
-	/**
-	 * Test the configured AI connection.
-	 *
-	 * @return void
-	 */
 	public function test_ai_connection() {
 
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -221,7 +210,7 @@ class WP_RapidRescue_Chat_Plugin {
 		}
 
 		check_ajax_referer(
-			'wp_rapidrescue_test_ai_connection',
+			'wp-rapidrescue_test_ai_connection',
 			'nonce'
 		);
 

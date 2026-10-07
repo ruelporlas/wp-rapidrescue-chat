@@ -17,6 +17,11 @@ document.addEventListener('DOMContentLoaded', function () {
 		return;
 	}
 
+	const SESSION_STORAGE_KEY =
+		'wp_rapidrescue_chat_session_id';
+
+	const sessionId = getOrCreateSessionId();
+
 	form.addEventListener('submit', function (event) {
 		event.preventDefault();
 
@@ -52,7 +57,8 @@ document.addEventListener('DOMContentLoaded', function () {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify({
-					message: message
+					message: message,
+					session_id: sessionId
 				})
 			}
 		)
@@ -99,7 +105,51 @@ document.addEventListener('DOMContentLoaded', function () {
 			});
 	});
 
+	function getOrCreateSessionId() {
+
+		let storedSessionId =
+			localStorage.getItem(
+				SESSION_STORAGE_KEY
+			);
+
+		if (
+			storedSessionId &&
+			typeof storedSessionId === 'string' &&
+			storedSessionId.length <= 64
+		) {
+			return storedSessionId;
+		}
+
+		storedSessionId =
+			generateSessionId();
+
+		localStorage.setItem(
+			SESSION_STORAGE_KEY,
+			storedSessionId
+		);
+
+		return storedSessionId;
+	}
+
+	function generateSessionId() {
+
+		if (
+			window.crypto &&
+			typeof window.crypto.randomUUID === 'function'
+		) {
+			return window.crypto.randomUUID();
+		}
+
+		return (
+			'rr-' +
+			Date.now().toString(36) +
+			'-' +
+			Math.random().toString(36).substring(2, 15)
+		);
+	}
+
 	function addMessage(text, type) {
+
 		const messageElement =
 			document.createElement('div');
 
@@ -112,17 +162,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		messages.appendChild(messageElement);
 
-		messages.scrollTop = messages.scrollHeight;
+		messages.scrollTop =
+			messages.scrollHeight;
 
 		return messageElement;
 	}
 
 	function removeMessage(element) {
+
 		if (
 			element &&
 			element.parentNode
 		) {
-			element.parentNode.removeChild(element);
+			element.parentNode.removeChild(
+				element
+			);
 		}
 	}
 });

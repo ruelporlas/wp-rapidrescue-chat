@@ -60,3 +60,4 @@ function wp_rapidrescue_chat() {
 }
 
 wp_rapidrescue_chat();
+
