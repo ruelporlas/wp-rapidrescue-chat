@@ -111,16 +111,18 @@ class WP_RapidRescue_Chat_Ticket {
 			$priority
 		);
 
-		if ( ! in_array(
-			$priority,
-			array(
-				'low',
-				'normal',
-				'high',
-				'urgent',
-			),
-			true
-		) ) {
+		if (
+			! in_array(
+				$priority,
+				array(
+					'low',
+					'normal',
+					'high',
+					'urgent',
+				),
+				true
+			)
+		) {
 			$priority = 'normal';
 		}
 
