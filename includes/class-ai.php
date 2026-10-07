@@ -10,23 +10,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Manages the configured AI provider.
+ * Manages AI providers and knowledge context.
  */
 class WP_RapidRescue_Chat_AI {
 
-	/**
-	 * Provider instances.
-	 *
-	 * @var array
-	 */
 	private static $providers = array();
 
-	/**
-	 * Get a response from the configured provider.
-	 *
-	 * @param string $message User message.
-	 * @return array|WP_Error
-	 */
 	public static function respond( $message ) {
 
 		$message = sanitize_textarea_field( $message );
@@ -49,15 +38,107 @@ class WP_RapidRescue_Chat_AI {
 			return $provider;
 		}
 
-		return $provider->respond( $message );
+		$knowledge = WP_RapidRescue_Chat_Knowledge::search(
+			$message,
+			5
+		);
+
+		$prompt = self::build_prompt(
+			$message,
+			$knowledge
+		);
+
+		return $provider->respond( $prompt );
 	}
 
-	/**
-	 * Get an AI provider.
-	 *
-	 * @param string $provider_id Provider identifier.
-	 * @return WP_RapidRescue_Chat_AI_Provider|WP_Error
-	 */
+	private static function build_prompt( $message, $knowledge ) {
+
+		$prompt = array();
+
+		$prompt[] =
+			'CUSTOMER MESSAGE:';
+
+		$prompt[] =
+			$message;
+
+		$prompt[] = '';
+
+		$prompt[] =
+			'CONFIRMED WP RAPIDRESCUE KNOWLEDGE:';
+
+		if ( empty( $knowledge ) ) {
+
+			$prompt[] =
+				'No matching confirmed knowledge was found.';
+
+		} else {
+
+			foreach ( $knowledge as $entry ) {
+
+				$title = isset( $entry['title'] )
+					? $entry['title']
+					: '';
+
+				$content = isset( $entry['content'] )
+					? wp_strip_all_tags(
+						$entry['content']
+					)
+					: '';
+
+				$categories = isset( $entry['categories'] )
+					? $entry['categories']
+					: array();
+
+				$prompt[] =
+					'--- Knowledge Entry ---';
+
+				$prompt[] =
+					'Title: ' . $title;
+
+				if ( ! empty( $categories ) ) {
+
+					$prompt[] =
+						'Categories: ' .
+						implode(
+							', ',
+							$categories
+						);
+				}
+
+				$prompt[] =
+					'Content:';
+
+				$prompt[] =
+					$content;
+
+				$prompt[] = '';
+			}
+		}
+
+		$prompt[] =
+			'INSTRUCTIONS:';
+
+		$prompt[] =
+			'Use the confirmed knowledge above when answering questions about WP RapidRescue.';
+
+		$prompt[] =
+			'Do not invent business information that is not supported by the confirmed knowledge.';
+
+		$prompt[] =
+			'If the confirmed knowledge does not contain the answer to a business question, clearly say that the information is not confirmed.';
+
+		$prompt[] =
+			'For WordPress troubleshooting, provide useful guidance when you can do so safely and confidently.';
+
+		$prompt[] =
+			'Do not claim that an issue has been fixed unless an actual fix has been performed and confirmed.';
+
+		return implode(
+			"\n",
+			$prompt
+		);
+	}
+
 	public static function get_provider( $provider_id ) {
 
 		$provider_id = sanitize_key( $provider_id );
@@ -69,11 +150,13 @@ class WP_RapidRescue_Chat_AI {
 		switch ( $provider_id ) {
 
 			case 'openai':
-				$provider = new WP_RapidRescue_Chat_AI_OpenAI();
+				$provider =
+					new WP_RapidRescue_Chat_AI_OpenAI();
 				break;
 
 			case 'gemini':
-				$provider = new WP_RapidRescue_Chat_AI_Gemini();
+				$provider =
+					new WP_RapidRescue_Chat_AI_Gemini();
 				break;
 
 			default:
@@ -88,11 +171,6 @@ class WP_RapidRescue_Chat_AI {
 		return $provider;
 	}
 
-	/**
-	 * Get available AI providers.
-	 *
-	 * @return array
-	 */
 	public static function get_providers() {
 
 		return array(
@@ -101,11 +179,6 @@ class WP_RapidRescue_Chat_AI {
 		);
 	}
 
-	/**
-	 * Get common system instructions.
-	 *
-	 * @return string
-	 */
 	public static function get_system_instructions() {
 
 		return implode(

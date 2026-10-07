@@ -14,11 +14,6 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_Plugin {
 
-	/**
-	 * Plugin instance.
-	 *
-	 * @var WP_RapidRescue_Chat_Plugin|null
-	 */
 	private static $instance = null;
 
 	/**
@@ -46,15 +41,7 @@ class WP_RapidRescue_Chat_Plugin {
 			'init',
 			array(
 				'WP_RapidRescue_Chat_Knowledge',
-				'register_post_type',
-			)
-		);
-
-		add_action(
-			'init',
-			array(
-				'WP_RapidRescue_Chat_Knowledge',
-				'register_taxonomy',
+				'register',
 			)
 		);
 
@@ -97,6 +84,8 @@ class WP_RapidRescue_Chat_Plugin {
 				'register_routes',
 			)
 		);
+
+		WP_RapidRescue_Chat_Chat_Widget::init();
 	}
 
 	/**
@@ -126,6 +115,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-rest-api.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'public/class-chat-widget.php';
 	}
 
 	/**
