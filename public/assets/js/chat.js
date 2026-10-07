@@ -22,32 +22,52 @@ document.addEventListener('DOMContentLoaded', function () {
 
 	const sessionId = getOrCreateSessionId();
 
+	const sendButton = form.querySelector(
+		'.wp-rapidrescue-chat__send'
+	);
+
+	/*
+	 * Submit the message when Enter is pressed.
+	 * Shift + Enter creates a new line.
+	 */
+	input.addEventListener('keydown', function (event) {
+
+		if (
+			event.key === 'Enter' &&
+			!event.shiftKey
+		) {
+			event.preventDefault();
+
+			if (!input.disabled) {
+				form.requestSubmit();
+			}
+		}
+	});
+
+	/*
+	 * Automatically grow the textarea while typing.
+	 */
+	input.addEventListener('input', function () {
+		autoResizeInput();
+	});
+
 	form.addEventListener('submit', function (event) {
 		event.preventDefault();
 
 		const message = input.value.trim();
 
-		if (!message) {
+		if (!message || input.disabled) {
 			return;
 		}
 
 		addMessage(message, 'user');
 
 		input.value = '';
-		input.disabled = true;
+		autoResizeInput();
 
-		const sendButton = form.querySelector(
-			'.wp-rapidrescue-chat__send'
-		);
+		setLoadingState(true);
 
-		if (sendButton) {
-			sendButton.disabled = true;
-		}
-
-		const loadingMessage = addMessage(
-			'Thinking...',
-			'assistant'
-		);
+		const loadingMessage = addLoadingMessage();
 
 		fetch(
 			wpRapidRescueChat.restUrl,
@@ -63,18 +83,23 @@ document.addEventListener('DOMContentLoaded', function () {
 			}
 		)
 			.then(function (response) {
-				return response.json().then(function (data) {
-					if (!response.ok) {
-						throw new Error(
-							data.message ||
-							'The chat request failed.'
-						);
-					}
 
-					return data;
-				});
+				return response.json().then(
+					function (data) {
+
+						if (!response.ok) {
+							throw new Error(
+								data.message ||
+								'The chat request failed.'
+							);
+						}
+
+						return data;
+					}
+				);
 			})
 			.then(function (data) {
+
 				removeMessage(loadingMessage);
 
 				const reply =
@@ -86,6 +111,7 @@ document.addEventListener('DOMContentLoaded', function () {
 				addMessage(reply, 'assistant');
 			})
 			.catch(function (error) {
+
 				removeMessage(loadingMessage);
 
 				addMessage(
@@ -95,15 +121,95 @@ document.addEventListener('DOMContentLoaded', function () {
 				);
 			})
 			.finally(function () {
-				input.disabled = false;
 
-				if (sendButton) {
-					sendButton.disabled = false;
-				}
+				setLoadingState(false);
 
 				input.focus();
 			});
 	});
+
+	function setLoadingState(isLoading) {
+
+		input.disabled = isLoading;
+
+		if (sendButton) {
+			sendButton.disabled = isLoading;
+		}
+	}
+
+	function addMessage(text, type) {
+
+		const messageElement =
+			document.createElement('div');
+
+		messageElement.className =
+			'wp-rapidrescue-chat__message ' +
+			'wp-rapidrescue-chat__message--' +
+			type;
+
+		messageElement.textContent = text;
+
+		messages.appendChild(messageElement);
+
+		scrollToBottom();
+
+		return messageElement;
+	}
+
+	function addLoadingMessage() {
+
+		const messageElement =
+			document.createElement('div');
+
+		messageElement.className =
+			'wp-rapidrescue-chat__message ' +
+			'wp-rapidrescue-chat__message--assistant ' +
+			'wp-rapidrescue-chat__message--loading';
+
+		messageElement.innerHTML =
+			'<span class="wp-rapidrescue-chat__typing" aria-label="Assistant is typing">' +
+				'<span></span>' +
+				'<span></span>' +
+				'<span></span>' +
+			'</span>';
+
+		messages.appendChild(messageElement);
+
+		scrollToBottom();
+
+		return messageElement;
+	}
+
+	function removeMessage(element) {
+
+		if (
+			element &&
+			element.parentNode
+		) {
+			element.parentNode.removeChild(
+				element
+			);
+		}
+	}
+
+	function scrollToBottom() {
+
+		requestAnimationFrame(function () {
+			messages.scrollTop =
+				messages.scrollHeight;
+		});
+	}
+
+	function autoResizeInput() {
+
+		input.style.height = 'auto';
+
+		const newHeight =
+			Math.min(input.scrollHeight, 120);
+
+		input.style.height =
+			newHeight + 'px';
+	}
 
 	function getOrCreateSessionId() {
 
@@ -146,37 +252,5 @@ document.addEventListener('DOMContentLoaded', function () {
 			'-' +
 			Math.random().toString(36).substring(2, 15)
 		);
-	}
-
-	function addMessage(text, type) {
-
-		const messageElement =
-			document.createElement('div');
-
-		messageElement.className =
-			'wp-rapidrescue-chat__message ' +
-			'wp-rapidrescue-chat__message--' +
-			type;
-
-		messageElement.textContent = text;
-
-		messages.appendChild(messageElement);
-
-		messages.scrollTop =
-			messages.scrollHeight;
-
-		return messageElement;
-	}
-
-	function removeMessage(element) {
-
-		if (
-			element &&
-			element.parentNode
-		) {
-			element.parentNode.removeChild(
-				element
-			);
-		}
 	}
 });
