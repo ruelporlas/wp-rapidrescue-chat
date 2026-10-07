@@ -52,6 +52,10 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-settings.php';
 		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-knowledge.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/ai/class-provider.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/ai/class-openai.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/ai/class-gemini.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-ai.php';
 	}
 
 	/**
