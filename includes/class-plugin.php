@@ -102,8 +102,6 @@ class WP_RapidRescue_Chat_Plugin {
 	 */
 	private function load_dependencies() {
 
-	
-
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-settings.php';
 
@@ -116,8 +114,11 @@ class WP_RapidRescue_Chat_Plugin {
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-customer.php';
 
-			require_once WP_RAPIDRESCUE_CHAT_PATH .
-	'includes/class-ticket.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-ticket.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-escalation.php';
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/ai/class-provider.php';
@@ -451,53 +452,53 @@ class WP_RapidRescue_Chat_Plugin {
 	}
 
 	/**
- * Plugin activation.
- *
- * @return void
- */
-public static function activate() {
+	 * Plugin activation.
+	 *
+	 * @return void
+	 */
+	public static function activate() {
 
-	$defaults =
-		WP_RapidRescue_Chat_Settings::get_defaults();
+		$defaults =
+			WP_RapidRescue_Chat_Settings::get_defaults();
 
-	$existing =
-		get_option(
+		$existing =
+			get_option(
+				WP_RapidRescue_Chat_Settings::OPTION_NAME,
+				false
+			);
+
+		if ( false === $existing ) {
+
+			add_option(
+				WP_RapidRescue_Chat_Settings::OPTION_NAME,
+				$defaults
+			);
+
+			return;
+		}
+
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+
+		$merged =
+			wp_parse_args(
+				$existing,
+				$defaults
+			);
+
+		update_option(
 			WP_RapidRescue_Chat_Settings::OPTION_NAME,
-			false
+			$merged
 		);
-
-	if ( false === $existing ) {
-
-		add_option(
-			WP_RapidRescue_Chat_Settings::OPTION_NAME,
-			$defaults
-		);
-
-		return;
 	}
 
-	if ( ! is_array( $existing ) ) {
-		$existing = array();
+	/**
+	 * Plugin deactivation.
+	 *
+	 * @return void
+	 */
+	public static function deactivate() {
+		// No cleanup is performed on deactivation.
 	}
-
-	$merged =
-		wp_parse_args(
-			$existing,
-			$defaults
-		);
-
-	update_option(
-		WP_RapidRescue_Chat_Settings::OPTION_NAME,
-		$merged
-	);
-}
-
-/**
- * Plugin deactivation.
- *
- * @return void
- */
-public static function deactivate() {
-	// No cleanup is performed on deactivation.
-}
 }
