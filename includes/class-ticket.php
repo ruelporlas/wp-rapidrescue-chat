@@ -20,6 +20,7 @@ class WP_RapidRescue_Chat_Ticket {
 	 * @return string
 	 */
 	private static function table() {
+
 		global $wpdb;
 
 		return $wpdb->prefix . 'rr_tickets';
@@ -31,6 +32,7 @@ class WP_RapidRescue_Chat_Ticket {
 	 * @return void
 	 */
 	public static function create_table() {
+
 		global $wpdb;
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -78,37 +80,47 @@ class WP_RapidRescue_Chat_Ticket {
 		$conversation_id = null,
 		$priority = 'normal'
 	) {
+
 		global $wpdb;
 
-		$subject = sanitize_text_field( $subject );
-		$summary = sanitize_textarea_field( $summary );
+		$subject = sanitize_text_field(
+			$subject
+		);
 
-		$customer_id = absint( $customer_id );
+		$summary = sanitize_textarea_field(
+			$summary
+		);
+
+		$customer_id = absint(
+			$customer_id
+		);
 
 		if ( $customer_id < 1 ) {
 			$customer_id = null;
 		}
 
-		$conversation_id = absint( $conversation_id );
+		$conversation_id = absint(
+			$conversation_id
+		);
 
 		if ( $conversation_id < 1 ) {
 			$conversation_id = null;
 		}
 
-		$priority = sanitize_key( $priority );
+		$priority = sanitize_key(
+			$priority
+		);
 
-		if (
-			! in_array(
-				$priority,
-				array(
-					'low',
-					'normal',
-					'high',
-					'urgent',
-				),
-				true
-			)
-		) {
+		if ( ! in_array(
+			$priority,
+			array(
+				'low',
+				'normal',
+				'high',
+				'urgent',
+			),
+			true
+		) ) {
 			$priority = 'normal';
 		}
 
@@ -120,7 +132,10 @@ class WP_RapidRescue_Chat_Ticket {
 			$summary = $subject;
 		}
 
-		$now = current_time( 'mysql', true );
+		$now = current_time(
+			'mysql',
+			true
+		);
 
 		$result = $wpdb->insert(
 			self::table(),
@@ -211,8 +226,14 @@ class WP_RapidRescue_Chat_Ticket {
 		$priority = 'normal',
 		$allow_new_issue = false
 	) {
-		$conversation_id = absint( $conversation_id );
-		$customer_id     = absint( $customer_id );
+
+		$conversation_id = absint(
+			$conversation_id
+		);
+
+		$customer_id = absint(
+			$customer_id
+		);
 
 		if ( $conversation_id < 1 ) {
 			return new WP_Error(
@@ -234,6 +255,7 @@ class WP_RapidRescue_Chat_Ticket {
 		}
 
 		if ( $customer_id < 1 ) {
+
 			$customer_id = absint(
 				$conversation->customer_id
 			);
@@ -244,10 +266,11 @@ class WP_RapidRescue_Chat_Ticket {
 		}
 
 		/*
-		 * Protect against duplicate tickets unless the caller
-		 * explicitly classified this as a genuinely new issue.
+		 * Only use the old duplicate protection when the caller
+		 * has NOT explicitly identified this as a new issue.
 		 */
 		if ( ! $allow_new_issue ) {
+
 			$existing_tickets =
 				self::get_by_conversation(
 					$conversation_id,
@@ -255,7 +278,11 @@ class WP_RapidRescue_Chat_Ticket {
 				);
 
 			if ( ! empty( $existing_tickets ) ) {
-				foreach ( $existing_tickets as $existing_ticket ) {
+
+				foreach (
+					$existing_tickets as $existing_ticket
+				) {
+
 					if (
 						in_array(
 							$existing_ticket->status,
@@ -267,12 +294,16 @@ class WP_RapidRescue_Chat_Ticket {
 							true
 						)
 					) {
+
 						return array(
 							'created'        => false,
 							'already_exists' => true,
-							'ticket_id'      => (int) $existing_ticket->id,
-							'ticket_key'     => $existing_ticket->ticket_key,
-							'ticket'         => $existing_ticket,
+							'ticket_id'      =>
+								(int) $existing_ticket->id,
+							'ticket_key'     =>
+								$existing_ticket->ticket_key,
+							'ticket'         =>
+								$existing_ticket,
 						);
 					}
 				}
@@ -291,7 +322,9 @@ class WP_RapidRescue_Chat_Ticket {
 			return $ticket_id;
 		}
 
-		$ticket = self::get_by_id( $ticket_id );
+		$ticket = self::get_by_id(
+			$ticket_id
+		);
 
 		if ( ! $ticket ) {
 			return new WP_Error(
@@ -310,41 +343,20 @@ class WP_RapidRescue_Chat_Ticket {
 	}
 
 	/**
-	 * Extract a ticket number from a message.
-	 *
-	 * @param string $message Customer message.
-	 * @return string
-	 */
-	public static function extract_ticket_key( $message ) {
-		$message = sanitize_text_field( $message );
-
-		if (
-			preg_match(
-				'/\bRR-\d{1,10}\b/i',
-				$message,
-				$matches
-			)
-		) {
-			return strtoupper(
-				sanitize_text_field(
-					$matches[0]
-				)
-			);
-		}
-
-		return '';
-	}
-
-	/**
 	 * Get a ticket by database ID.
 	 *
 	 * @param int $ticket_id Ticket ID.
 	 * @return object|null
 	 */
-	public static function get_by_id( $ticket_id ) {
+	public static function get_by_id(
+		$ticket_id
+	) {
+
 		global $wpdb;
 
-		$ticket_id = absint( $ticket_id );
+		$ticket_id = absint(
+			$ticket_id
+		);
 
 		if ( $ticket_id < 1 ) {
 			return null;
@@ -369,11 +381,16 @@ class WP_RapidRescue_Chat_Ticket {
 	 * @param string $ticket_key Ticket key.
 	 * @return object|null
 	 */
-	public static function get_by_key( $ticket_key ) {
+	public static function get_by_key(
+		$ticket_key
+	) {
+
 		global $wpdb;
 
 		$ticket_key = strtoupper(
-			sanitize_text_field( $ticket_key )
+			sanitize_text_field(
+				$ticket_key
+			)
 		);
 
 		if ( '' === $ticket_key ) {
@@ -397,17 +414,23 @@ class WP_RapidRescue_Chat_Ticket {
 	 * Get tickets belonging to a customer.
 	 *
 	 * @param int $customer_id Customer ID.
-	 * @param int $limit       Maximum number of tickets.
+	 * @param int $limit Maximum number of tickets.
 	 * @return array
 	 */
 	public static function get_by_customer(
 		$customer_id,
 		$limit = 50
 	) {
+
 		global $wpdb;
 
-		$customer_id = absint( $customer_id );
-		$limit       = absint( $limit );
+		$customer_id = absint(
+			$customer_id
+		);
+
+		$limit = absint(
+			$limit
+		);
 
 		if ( $customer_id < 1 ) {
 			return array();
@@ -440,17 +463,23 @@ class WP_RapidRescue_Chat_Ticket {
 	 * Get tickets belonging to a conversation.
 	 *
 	 * @param int $conversation_id Conversation ID.
-	 * @param int $limit           Maximum number of tickets.
+	 * @param int $limit Maximum number of tickets.
 	 * @return array
 	 */
 	public static function get_by_conversation(
 		$conversation_id,
 		$limit = 50
 	) {
+
 		global $wpdb;
 
-		$conversation_id = absint( $conversation_id );
-		$limit           = absint( $limit );
+		$conversation_id = absint(
+			$conversation_id
+		);
+
+		$limit = absint(
+			$limit
+		);
 
 		if ( $conversation_id < 1 ) {
 			return array();
@@ -483,10 +512,10 @@ class WP_RapidRescue_Chat_Ticket {
 	 * Update a ticket.
 	 *
 	 * @param int    $ticket_id Ticket ID.
-	 * @param string $subject   Ticket subject.
-	 * @param string $summary   Ticket summary.
-	 * @param string $status    Ticket status.
-	 * @param string $priority  Ticket priority.
+	 * @param string $subject Ticket subject.
+	 * @param string $summary Ticket summary.
+	 * @param string $status Ticket status.
+	 * @param string $priority Ticket priority.
 	 * @return bool|WP_Error
 	 */
 	public static function update(
@@ -496,9 +525,12 @@ class WP_RapidRescue_Chat_Ticket {
 		$status = '',
 		$priority = ''
 	) {
+
 		global $wpdb;
 
-		$ticket_id = absint( $ticket_id );
+		$ticket_id = absint(
+			$ticket_id
+		);
 
 		if ( $ticket_id < 1 ) {
 			return new WP_Error(
@@ -507,7 +539,9 @@ class WP_RapidRescue_Chat_Ticket {
 			);
 		}
 
-		$ticket = self::get_by_id( $ticket_id );
+		$ticket = self::get_by_id(
+			$ticket_id
+		);
 
 		if ( ! $ticket ) {
 			return new WP_Error(
@@ -519,21 +553,27 @@ class WP_RapidRescue_Chat_Ticket {
 		$data    = array();
 		$formats = array();
 
-		$subject = sanitize_text_field( $subject );
+		$subject = sanitize_text_field(
+			$subject
+		);
 
 		if ( '' !== $subject ) {
 			$data['subject'] = $subject;
 			$formats[]       = '%s';
 		}
 
-		$summary = sanitize_textarea_field( $summary );
+		$summary = sanitize_textarea_field(
+			$summary
+		);
 
 		if ( '' !== trim( $summary ) ) {
 			$data['summary'] = $summary;
 			$formats[]       = '%s';
 		}
 
-		$status = sanitize_key( $status );
+		$status = sanitize_key(
+			$status
+		);
 
 		if (
 			'' !== $status &&
@@ -553,7 +593,9 @@ class WP_RapidRescue_Chat_Ticket {
 			$formats[]      = '%s';
 		}
 
-		$priority = sanitize_key( $priority );
+		$priority = sanitize_key(
+			$priority
+		);
 
 		if (
 			'' !== $priority &&
@@ -576,8 +618,13 @@ class WP_RapidRescue_Chat_Ticket {
 			return true;
 		}
 
-		$data['updated_at'] = current_time( 'mysql', true );
-		$formats[]          = '%s';
+		$data['updated_at'] =
+			current_time(
+				'mysql',
+				true
+			);
+
+		$formats[] = '%s';
 
 		$result = $wpdb->update(
 			self::table(),
@@ -605,13 +652,14 @@ class WP_RapidRescue_Chat_Ticket {
 	 * Update ticket status.
 	 *
 	 * @param int    $ticket_id Ticket ID.
-	 * @param string $status    New status.
+	 * @param string $status New status.
 	 * @return bool|WP_Error
 	 */
 	public static function update_status(
 		$ticket_id,
 		$status
 	) {
+
 		return self::update(
 			$ticket_id,
 			'',

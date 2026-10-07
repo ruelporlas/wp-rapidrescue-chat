@@ -140,6 +140,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'admin/class-conversations.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'admin/class-tickets.php';
 	}
 
 	/**
@@ -182,6 +185,18 @@ class WP_RapidRescue_Chat_Plugin {
 			'wp-rapidrescue-conversations',
 			array(
 				'WP_RapidRescue_Chat_Conversations_Admin',
+				'render',
+			)
+		);
+
+		add_submenu_page(
+			'wp-rapidrescue-chat',
+			'Tickets',
+			'Tickets',
+			'manage_options',
+			'wp-rapidrescue-tickets',
+			array(
+				'WP_RapidRescue_Chat_Tickets_Admin',
 				'render',
 			)
 		);
