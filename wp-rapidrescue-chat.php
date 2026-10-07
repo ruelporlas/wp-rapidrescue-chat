@@ -35,7 +35,25 @@ define( 'WP_RAPIDRESCUE_CHAT_URL', plugin_dir_url( __FILE__ ) );
 require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-plugin.php';
 
 /**
+ * Register activation hook.
+ */
+register_activation_hook(
+	__FILE__,
+	array( 'WP_RapidRescue_Chat_Plugin', 'activate' )
+);
+
+/**
+ * Register deactivation hook.
+ */
+register_deactivation_hook(
+	__FILE__,
+	array( 'WP_RapidRescue_Chat_Plugin', 'deactivate' )
+);
+
+/**
  * Start the plugin.
+ *
+ * @return WP_RapidRescue_Chat_Plugin
  */
 function wp_rapidrescue_chat() {
 	return WP_RapidRescue_Chat_Plugin::instance();
