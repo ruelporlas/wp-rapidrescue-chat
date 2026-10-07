@@ -84,6 +84,11 @@ class WP_RapidRescue_Chat_Plugin {
 			'init',
 			array( 'WP_RapidRescue_Chat_Knowledge', 'register' )
 		);
+
+		add_action(
+			'wp_ajax_wp_rapidrescue_test_ai_connection',
+			array( $this, 'test_ai_connection' )
+		);
 	}
 
 	/**
@@ -115,13 +120,88 @@ class WP_RapidRescue_Chat_Plugin {
 			<form method="post" action="options.php">
 
 				<?php
-				settings_fields( 'wp_rapidrescue_chat_settings_group' );
+				 settings_fields( 'wp_rapidrescue_chat_settings_group' );
 				do_settings_sections( 'wp-rapidrescue-chat' );
 				submit_button();
 				?>
 
 			</form>
+
+			<div class="rr-ai-connection-test">
+				<h2>AI Connection Test</h2>
+
+				<p>
+					Test the currently selected AI provider using a simple
+					server-side request.
+				</p>
+
+				<p>
+					<button
+						type="button"
+						class="button button-secondary"
+						id="wp-rapidrescue-test-ai-connection"
+					>
+						Test AI Connection
+					</button>
+				</p>
+
+				<div
+					id="wp-rapidrescue-ai-test-result"
+					role="status"
+					aria-live="polite"
+				></div>
+			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Test the configured AI provider connection.
+	 *
+	 * @return void
+	 */
+	public function test_ai_connection() {
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error(
+				array(
+					'message' => 'You do not have permission to perform this test.',
+				),
+				403
+			);
+		}
+
+		check_ajax_referer(
+			'wp_rapidrescue_test_ai_connection',
+			'nonce'
+		);
+
+		$test_message = 'Reply with exactly: Connection successful.';
+
+		$response = WP_RapidRescue_Chat_AI::respond( $test_message );
+
+		if ( is_wp_error( $response ) ) {
+			wp_send_json_error(
+				array(
+					'message' => $response->get_error_message(),
+				),
+				400
+			);
+		}
+
+		wp_send_json_success(
+			array(
+				'message'  => 'AI connection successful.',
+				'response' => isset( $response['text'] )
+					? $response['text']
+					: '',
+				'provider' => isset( $response['provider'] )
+					? $response['provider']
+					: '',
+				'model'    => isset( $response['model'] )
+					? $response['model']
+					: '',
+			)
+		);
 	}
 }

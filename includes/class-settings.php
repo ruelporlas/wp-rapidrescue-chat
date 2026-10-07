@@ -14,10 +14,17 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_Settings {
 
+	/**
+	 * Settings option name.
+	 *
+	 * @var string
+	 */
 	const OPTION_NAME = 'wp_rapidrescue_chat_settings';
 
 	/**
 	 * Register plugin settings.
+	 *
+	 * @return void
 	 */
 	public static function register() {
 
@@ -174,6 +181,8 @@ class WP_RapidRescue_Chat_Settings {
 
 	/**
 	 * Render general settings section.
+	 *
+	 * @return void
 	 */
 	public static function render_general_section() {
 		?>
@@ -185,6 +194,8 @@ class WP_RapidRescue_Chat_Settings {
 
 	/**
 	 * Render AI provider field.
+	 *
+	 * @return void
 	 */
 	public static function render_provider_field() {
 
@@ -221,6 +232,8 @@ class WP_RapidRescue_Chat_Settings {
 
 	/**
 	 * Render OpenAI API key field.
+	 *
+	 * @return void
 	 */
 	public static function render_openai_api_key_field() {
 
@@ -248,8 +261,7 @@ class WP_RapidRescue_Chat_Settings {
 	/**
 	 * Render OpenAI model field.
 	 *
-	 * This remains a text field for now because we will handle
-	 * provider-specific model availability separately.
+	 * @return void
 	 */
 	public static function render_openai_model_field() {
 
@@ -276,6 +288,8 @@ class WP_RapidRescue_Chat_Settings {
 
 	/**
 	 * Render Gemini API key field.
+	 *
+	 * @return void
 	 */
 	public static function render_gemini_api_key_field() {
 
@@ -302,6 +316,8 @@ class WP_RapidRescue_Chat_Settings {
 
 	/**
 	 * Render Gemini model selector.
+	 *
+	 * @return void
 	 */
 	public static function render_gemini_model_field() {
 
@@ -352,23 +368,21 @@ class WP_RapidRescue_Chat_Settings {
 	/**
 	 * Get available Gemini models.
 	 *
-	 * The IDs here are the values sent to Google's API.
-	 *
 	 * @return array
 	 */
 	private static function get_gemini_models() {
 
 		return array(
-			'gemini-3.8-flash' => 'Gemini 3.8 Flash',
-			'gemini-3.7-flash' => 'Gemini 3.7 Flash',
-			'gemini-3.6-flash' => 'Gemini 3.6 Flash',
-			'gemini-3.5-flash' => 'Gemini 3.5 Flash',
+			'gemini-3.8-flash'      => 'Gemini 3.8 Flash',
+			'gemini-3.7-flash'      => 'Gemini 3.7 Flash',
+			'gemini-3.6-flash'      => 'Gemini 3.6 Flash',
+			'gemini-3.5-flash'      => 'Gemini 3.5 Flash',
 			'gemini-3.5-flash-lite' => 'Gemini 3.5 Flash-Lite',
 			'gemini-3.1-flash-lite' => 'Gemini 3.1 Flash-Lite',
 			'gemini-3.1-pro-preview' => 'Gemini 3.1 Pro (Preview)',
 			'gemini-3-flash-preview' => 'Gemini 3 Flash (Preview)',
-			'gemini-2.5-pro' => 'Gemini 2.5 Pro',
-			'gemini-2.5-flash' => 'Gemini 2.5 Flash',
+			'gemini-2.5-pro'        => 'Gemini 2.5 Pro',
+			'gemini-2.5-flash'      => 'Gemini 2.5 Flash',
 			'gemini-2.5-flash-lite' => 'Gemini 2.5 Flash-Lite',
 		);
 	}
@@ -401,6 +415,7 @@ class WP_RapidRescue_Chat_Settings {
 	 * Enqueue admin assets.
 	 *
 	 * @param string $hook Current admin page hook.
+	 * @return void
 	 */
 	public static function enqueue_admin_assets( $hook ) {
 
@@ -414,6 +429,17 @@ class WP_RapidRescue_Chat_Settings {
 			array(),
 			WP_RAPIDRESCUE_CHAT_VERSION,
 			true
+		);
+
+		wp_localize_script(
+			'wp-rapidrescue-chat-settings',
+			'wpRapidRescueChatSettings',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'nonce'   => wp_create_nonce(
+					'wp_rapidrescue_test_ai_connection'
+				),
+			)
 		);
 	}
 }
