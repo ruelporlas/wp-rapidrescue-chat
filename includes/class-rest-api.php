@@ -16,6 +16,11 @@ class WP_RapidRescue_Chat_REST_API {
 
 	const NAMESPACE = 'wp-rapidrescue/v1';
 
+	/**
+	 * Register REST routes.
+	 *
+	 * @return void
+	 */
 	public static function register_routes() {
 
 		register_rest_route(
@@ -50,6 +55,12 @@ class WP_RapidRescue_Chat_REST_API {
 		);
 	}
 
+	/**
+	 * Handle a chat request.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response|WP_Error
+	 */
 	public static function chat( WP_REST_Request $request ) {
 
 		$message = $request->get_param( 'message' );
@@ -78,9 +89,33 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 		}
 
+		/*
+		 * Determine whether this message contains reliable identity
+		 * information before creating or retrieving the conversation.
+		 */
+		$identity =
+			WP_RapidRescue_Chat_Customer::extract_identity(
+				$message
+			);
+
+		$customer_id =
+			WP_RapidRescue_Chat_Customer::find_or_create_from_identity(
+				$identity
+			);
+
+		if ( is_wp_error( $customer_id ) ) {
+			return $customer_id;
+		}
+
+		/*
+		 * If the message did not contain enough information to identify
+		 * a customer, customer_id remains null and the conversation
+		 * continues anonymously.
+		 */
 		$conversation =
 			WP_RapidRescue_Chat_Conversation::get_or_create(
-				$session_id
+				$session_id,
+				$customer_id
 			);
 
 		if ( is_wp_error( $conversation ) ) {
@@ -146,6 +181,9 @@ class WP_RapidRescue_Chat_REST_API {
 				'success' => true,
 				'data'    => array(
 					'conversation_id' => $conversation_id,
+					'customer_id'     => $customer_id
+						? absint( $customer_id )
+						: null,
 					'text'            => $assistant_text,
 				),
 			)

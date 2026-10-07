@@ -246,4 +246,166 @@ class WP_RapidRescue_Chat_Customer {
 
 		return true;
 	}
+
+	/**
+	 * Extract identity information from a customer message.
+	 *
+	 * This is intentionally conservative. The application only uses
+	 * information that can be recognized with reasonable confidence.
+	 *
+	 * @param string $message Customer message.
+	 * @return array
+	 */
+	public static function extract_identity( $message ) {
+
+		$message = sanitize_textarea_field( $message );
+
+		$identity = array(
+			'name'     => '',
+			'email'    => '',
+			'site_url' => '',
+		);
+
+		if ( '' === trim( $message ) ) {
+			return $identity;
+		}
+
+		/*
+		 * Email address.
+		 */
+		if (
+			preg_match(
+				'/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i',
+				$message,
+				$matches
+			)
+		) {
+			$email = sanitize_email( $matches[0] );
+
+			if ( '' !== $email ) {
+				$identity['email'] = $email;
+			}
+		}
+
+		/*
+		 * Website URL.
+		 */
+		if (
+			preg_match(
+				'~https?://[^\s<>"\']+~i',
+				$message,
+				$matches
+			)
+		) {
+			$url = esc_url_raw(
+				rtrim(
+					$matches[0],
+					'.,!?;:)'
+				)
+			);
+
+			if ( '' !== $url ) {
+				$identity['site_url'] = $url;
+			}
+		}
+
+		/*
+		 * Name.
+		 *
+		 * Only accept common explicit introductions such as:
+		 * "My name is Ruel"
+		 * "I'm Ruel"
+		 * "I am Ruel"
+		 *
+		 * We do not attempt to guess a person's name from arbitrary
+		 * text because that could create incorrect customer records.
+		 */
+		if (
+			preg_match(
+				'/\b(?:my\s+name\s+is|i\s+am|i\'m)\s+([A-Za-z][A-Za-z .\'-]{1,80})/i',
+				$message,
+				$matches
+			)
+		) {
+			$name = trim(
+				preg_replace(
+					'/\s+/',
+					' ',
+					$matches[1]
+				)
+			);
+
+			$name = preg_replace(
+				'/[.,!?;:]+$/',
+				'',
+				$name
+			);
+
+			$name = sanitize_text_field( $name );
+
+			if ( '' !== $name ) {
+				$identity['name'] = $name;
+			}
+		}
+
+		return $identity;
+	}
+
+	/**
+	 * Find or create a customer using confirmed identity information.
+	 *
+	 * Email is required before a customer record is created.
+	 *
+	 * @param array $identity Identity information.
+	 * @return int|null|WP_Error Customer ID, null if insufficient identity, or error.
+	 */
+	public static function find_or_create_from_identity( $identity ) {
+
+		if ( ! is_array( $identity ) ) {
+			return null;
+		}
+
+		$name = isset( $identity['name'] )
+			? sanitize_text_field( $identity['name'] )
+			: '';
+
+		$email = isset( $identity['email'] )
+			? sanitize_email( $identity['email'] )
+			: '';
+
+		$site_url = isset( $identity['site_url'] )
+			? esc_url_raw( $identity['site_url'] )
+			: '';
+
+		/*
+		 * Do not create a customer from a name or website alone.
+		 */
+		if ( '' === $email ) {
+			return null;
+		}
+
+		$customer = self::get_by_email( $email );
+
+		if ( $customer ) {
+
+			$updated = self::update(
+				$customer->id,
+				$name,
+				$email,
+				$site_url
+			);
+
+			if ( is_wp_error( $updated ) ) {
+				return $updated;
+			}
+
+			return (int) $customer->id;
+		}
+
+		return self::create(
+			$name,
+			$email,
+			$site_url
+		);
+	}
 }

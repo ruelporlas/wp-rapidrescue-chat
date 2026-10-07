@@ -42,6 +42,7 @@ class WP_RapidRescue_Chat_Plugin {
 		 */
 		WP_RapidRescue_Chat_Conversation::create_tables();
 		WP_RapidRescue_Chat_Customer::create_table();
+		WP_RapidRescue_Chat_Ticket::create_table();
 
 		add_action(
 			'init',
@@ -101,6 +102,8 @@ class WP_RapidRescue_Chat_Plugin {
 	 */
 	private function load_dependencies() {
 
+	
+
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-settings.php';
 
@@ -112,6 +115,9 @@ class WP_RapidRescue_Chat_Plugin {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-customer.php';
+
+			require_once WP_RAPIDRESCUE_CHAT_PATH .
+	'includes/class-ticket.php';
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/ai/class-provider.php';
