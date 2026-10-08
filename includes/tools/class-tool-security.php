@@ -13,15 +13,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Handles authorization for AI tools.
  *
  * The AI is never treated as the security boundary.
- * This class determines what information/actions are permitted.
  */
 class WP_RapidRescue_Chat_Tool_Security {
 
-	/**
-	 * Information access levels.
-	 */
-	const ACCESS_PUBLIC          = 'public';
-	const ACCESS_CUSTOMER_BASIC  = 'customer_basic';
+	const ACCESS_PUBLIC           = 'public';
+	const ACCESS_CUSTOMER_BASIC   = 'customer_basic';
 	const ACCESS_CUSTOMER_PRIVATE = 'customer_private';
 	const ACCESS_TICKET_PRIVATE   = 'ticket_private';
 	const ACCESS_INTERNAL         = 'internal';
@@ -65,11 +61,10 @@ class WP_RapidRescue_Chat_Tool_Security {
 	}
 
 	/**
-	 * Determine whether the current conversation has verified
-	 * access to a particular customer.
+	 * Determine whether a customer may be accessed.
 	 *
 	 * @param int   $customer_id Customer ID.
-	 * @param array $context Tool execution context.
+	 * @param array $context Tool context.
 	 * @return bool
 	 */
 	public static function can_access_customer(
@@ -77,22 +72,26 @@ class WP_RapidRescue_Chat_Tool_Security {
 		$context
 	) {
 
-		$customer_id = absint( $customer_id );
+		$customer_id =
+			absint(
+				$customer_id
+			);
 
 		if ( $customer_id < 1 ) {
 			return false;
 		}
 
-		return $customer_id === self::get_customer_id(
-			$context
-		);
+		return $customer_id ===
+			self::get_customer_id(
+				$context
+			);
 	}
 
 	/**
-	 * Determine whether ticket-private information has been verified.
+	 * Determine whether ticket-private information is accessible.
 	 *
-	 * @param object $ticket  Ticket object.
-	 * @param array  $context Tool execution context.
+	 * @param object $ticket Ticket.
+	 * @param array  $context Tool context.
 	 * @return bool
 	 */
 	public static function can_access_ticket(
@@ -100,36 +99,30 @@ class WP_RapidRescue_Chat_Tool_Security {
 		$context
 	) {
 
-		if ( ! $ticket || ! is_object( $ticket ) ) {
+		if (
+			! $ticket ||
+			! is_object( $ticket )
+		) {
 			return false;
 		}
 
-		$customer_id = self::get_customer_id(
-			$context
-		);
+		$customer_id =
+			self::get_customer_id(
+				$context
+			);
 
 		if ( $customer_id < 1 ) {
 			return false;
 		}
 
-		/*
-		 * A ticket must belong to the identified customer.
-		 *
-		 * We deliberately do not trust the AI to establish this
-		 * relationship.
-		 */
 		if (
-			absint( $ticket->customer_id ) !==
-			$customer_id
+			absint(
+				$ticket->customer_id
+			) !== $customer_id
 		) {
 			return false;
 		}
 
-		/*
-		 * A matching customer ID is not enough by itself.
-		 *
-		 * The tool manager must establish verified ticket access.
-		 */
 		return ! empty(
 			$context['verified_ticket_keys']
 		) &&
@@ -150,10 +143,8 @@ class WP_RapidRescue_Chat_Tool_Security {
 	/**
 	 * Determine whether an email belongs to a customer.
 	 *
-	 * This is used as part of ticket verification.
-	 *
-	 * @param string $supplied_email Supplied email.
-	 * @param object $customer       Customer record.
+	 * @param string $supplied_email Email.
+	 * @param object $customer Customer.
 	 * @return bool
 	 */
 	public static function emails_match_customer(
@@ -168,15 +159,19 @@ class WP_RapidRescue_Chat_Tool_Security {
 			return false;
 		}
 
-		$supplied_email = sanitize_email(
-			$supplied_email
-		);
+		$supplied_email =
+			sanitize_email(
+				$supplied_email
+			);
 
-		$customer_email = sanitize_email(
-			isset( $customer->email )
-				? $customer->email
-				: ''
-		);
+		$customer_email =
+			sanitize_email(
+				isset(
+					$customer->email
+				)
+					? $customer->email
+					: ''
+			);
 
 		if (
 			'' === $supplied_email ||
@@ -195,9 +190,9 @@ class WP_RapidRescue_Chat_Tool_Security {
 	/**
 	 * Determine whether an email belongs to a ticket.
 	 *
-	 * @param string $supplied_email Supplied email.
-	 * @param object $ticket         Ticket record.
-	 * @param object $customer       Optional customer record.
+	 * @param string $supplied_email Email.
+	 * @param object $ticket Ticket.
+	 * @param object $customer Customer.
 	 * @return bool
 	 */
 	public static function emails_match_ticket(
@@ -213,19 +208,23 @@ class WP_RapidRescue_Chat_Tool_Security {
 			return false;
 		}
 
-		$supplied_email = sanitize_email(
-			$supplied_email
-		);
+		$supplied_email =
+			sanitize_email(
+				$supplied_email
+			);
 
 		if ( '' === $supplied_email ) {
 			return false;
 		}
 
-		$ticket_email = sanitize_email(
-			isset( $ticket->customer_email )
-				? $ticket->customer_email
-				: ''
-		);
+		$ticket_email =
+			sanitize_email(
+				isset(
+					$ticket->customer_email
+				)
+					? $ticket->customer_email
+					: ''
+			);
 
 		if ( '' !== $ticket_email ) {
 
@@ -236,12 +235,6 @@ class WP_RapidRescue_Chat_Tool_Security {
 			);
 		}
 
-		/*
-		 * Legacy tickets may not have customer_email populated.
-		 *
-		 * In that case, fall back to the associated customer's
-		 * email address.
-		 */
 		if (
 			$customer &&
 			self::emails_match_customer(
@@ -256,10 +249,10 @@ class WP_RapidRescue_Chat_Tool_Security {
 	}
 
 	/**
-	 * Mark a ticket as verified in the current execution context.
+	 * Mark a ticket as verified in the current context.
 	 *
 	 * @param string $ticket_key Ticket key.
-	 * @param array  $context    Tool execution context.
+	 * @param array  $context Context.
 	 * @return array
 	 */
 	public static function verify_ticket_context(
@@ -267,11 +260,12 @@ class WP_RapidRescue_Chat_Tool_Security {
 		$context
 	) {
 
-		$ticket_key = strtoupper(
-			sanitize_text_field(
-				$ticket_key
-			)
-		);
+		$ticket_key =
+			strtoupper(
+				sanitize_text_field(
+					$ticket_key
+				)
+			);
 
 		if ( '' === $ticket_key ) {
 			return $context;
@@ -285,7 +279,8 @@ class WP_RapidRescue_Chat_Tool_Security {
 				$context['verified_ticket_keys']
 			)
 		) {
-			$context['verified_ticket_keys'] = array();
+			$context['verified_ticket_keys'] =
+				array();
 		}
 
 		if (
@@ -295,6 +290,7 @@ class WP_RapidRescue_Chat_Tool_Security {
 				true
 			)
 		) {
+
 			$context['verified_ticket_keys'][] =
 				$ticket_key;
 		}
@@ -303,26 +299,37 @@ class WP_RapidRescue_Chat_Tool_Security {
 	}
 
 	/**
-	 * Determine whether a ticket may be created.
+	 * Determine whether a new ticket may be created.
 	 *
-	 * Ticket creation requires:
+	 * PHP authorization requires:
 	 *
 	 * - identified customer
-	 * - conversation
-	 * - explicit application-level confirmation
+	 * - valid conversation
+	 * - control engine explicitly authorizing creation
+	 * - pending escalation with meaningful details
+	 *
+	 * No second customer confirmation is required.
 	 *
 	 * @param array $context Tool execution context.
 	 * @return bool
 	 */
-	public static function can_create_ticket( $context ) {
+	public static function can_create_ticket(
+		$context
+	) {
 
-		if ( ! self::has_customer_identity( $context ) ) {
+		if (
+			! self::has_customer_identity(
+				$context
+			)
+		) {
 			return false;
 		}
 
 		if (
 			absint(
-				isset( $context['conversation_id'] )
+				isset(
+					$context['conversation_id']
+				)
 					? $context['conversation_id']
 					: 0
 			) < 1
@@ -331,19 +338,67 @@ class WP_RapidRescue_Chat_Tool_Security {
 		}
 
 		/*
-		 * This flag must be established by PHP.
-		 * The AI cannot grant itself permission by saying
-		 * "confirmed": true.
+		 * This flag is generated by the PHP Control Engine.
+		 *
+		 * It does NOT mean that the customer typed "yes".
+		 * It means PHP has determined that the customer explicitly
+		 * requested a ticket and supplied enough information for
+		 * creation.
 		 */
-		return ! empty(
-			$context['explicit_ticket_confirmation']
-		);
+		if (
+			empty(
+				$context['explicit_ticket_confirmation']
+			)
+		) {
+			return false;
+		}
+
+		/*
+		 * Verify the persisted pending state as a second PHP-side
+		 * safety check.
+		 */
+		$pending =
+			WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
+				absint(
+					$context['conversation_id']
+				)
+			);
+
+		if (
+			! is_array( $pending ) ||
+			empty( $pending )
+		) {
+			return false;
+		}
+
+		if (
+			empty(
+				$pending['confirmed']
+			)
+		) {
+			return false;
+		}
+
+		if (
+			empty(
+				$pending['summary']
+			) ||
+			'' === trim(
+				sanitize_textarea_field(
+					$pending['summary']
+				)
+			)
+		) {
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
-	 * Remove private fields from a customer record.
+	 * Remove private fields from a customer.
 	 *
-	 * @param object $customer Customer record.
+	 * @param object $customer Customer.
 	 * @return array
 	 */
 	public static function customer_to_safe_array(
@@ -358,27 +413,32 @@ class WP_RapidRescue_Chat_Tool_Security {
 		}
 
 		return array(
-			'id' => absint(
-				$customer->id
-			),
-			'name' => sanitize_text_field(
-				$customer->name
-			),
-			'email' => sanitize_email(
-				$customer->email
-			),
-			'site_url' => esc_url_raw(
-				$customer->site_url
-			),
+			'id' =>
+				absint(
+					$customer->id
+				),
+
+			'name' =>
+				sanitize_text_field(
+					$customer->name
+				),
+
+			'email' =>
+				sanitize_email(
+					$customer->email
+				),
+
+			'site_url' =>
+				esc_url_raw(
+					$customer->site_url
+				),
 		);
 	}
 
 	/**
-	 * Convert a verified ticket into customer-safe data.
+	 * Convert a verified ticket into safe data.
 	 *
-	 * Internal database fields are never returned directly.
-	 *
-	 * @param object $ticket Ticket record.
+	 * @param object $ticket Ticket.
 	 * @return array
 	 */
 	public static function ticket_to_safe_array(
@@ -393,21 +453,30 @@ class WP_RapidRescue_Chat_Tool_Security {
 		}
 
 		return array(
-			'ticket_key' => sanitize_text_field(
-				$ticket->ticket_key
-			),
-			'subject' => sanitize_text_field(
-				$ticket->subject
-			),
-			'status' => sanitize_key(
-				$ticket->status
-			),
-			'priority' => sanitize_key(
-				$ticket->priority
-			),
-			'summary' => sanitize_textarea_field(
-				$ticket->summary
-			),
+			'ticket_key' =>
+				sanitize_text_field(
+					$ticket->ticket_key
+				),
+
+			'subject' =>
+				sanitize_text_field(
+					$ticket->subject
+				),
+
+			'status' =>
+				sanitize_key(
+					$ticket->status
+				),
+
+			'priority' =>
+				sanitize_key(
+					$ticket->priority
+				),
+
+			'summary' =>
+				sanitize_textarea_field(
+					$ticket->summary
+				),
 		);
-	} 
+	}
 }
