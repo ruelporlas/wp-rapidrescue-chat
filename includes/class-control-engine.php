@@ -32,6 +32,17 @@ class WP_RapidRescue_Chat_Control_Engine {
 	/**
 	 * Evaluate application state.
 	 *
+	 * The order of evaluation is intentional.
+	 *
+	 * Existing-ticket update intent is evaluated BEFORE:
+	 *
+	 * - human escalation
+	 * - new-ticket requests
+	 * - pending ticket creation
+	 *
+	 * This prevents phrases such as "I need a person" inside an
+	 * update request from incorrectly starting a new ticket workflow.
+	 *
 	 * @param array $context Runtime context.
 	 * @return array
 	 */
@@ -84,7 +95,210 @@ class WP_RapidRescue_Chat_Control_Engine {
 				: '';
 
 		/*
-		 * Detect explicit new-ticket requests.
+		 * ---------------------------------------------------------
+		 * 1. Resolve verified ticket context FIRST.
+		 * ---------------------------------------------------------
+		 *
+		 * This is critical for multi-step conversations.
+		 *
+		 * After create_ticket succeeds, the newly-created ticket
+		 * becomes the active verified ticket. On the next customer
+		 * message, REST may represent that ticket with:
+		 *
+		 * lookup_status = verified
+		 *
+		 * rather than:
+		 *
+		 * verified = true
+		 *
+		 * The Control Engine accepts both representations.
+		 */
+		$verified_ticket =
+			self::get_verified_ticket(
+				$ticket_context
+			);
+
+		/*
+		 * If the conversation has an active ticket key but the
+		 * ticket context did not explicitly include it, try to
+		 * resolve that ticket from the supplied context.
+		 */
+		if (
+			! $verified_ticket &&
+			'' !== $active_ticket_key
+		) {
+
+			foreach ( $ticket_context as $ticket ) {
+
+				if ( ! is_array( $ticket ) ) {
+					continue;
+				}
+
+				$ticket_key =
+					isset( $ticket['ticket_key'] )
+						? strtoupper(
+							sanitize_text_field(
+								$ticket['ticket_key']
+							)
+						)
+						: '';
+
+				if (
+					$ticket_key ===
+					$active_ticket_key &&
+					self::ticket_context_is_verified(
+						$ticket
+					)
+				) {
+
+					$verified_ticket = $ticket;
+
+					break;
+				}
+			}
+		}
+
+		/*
+		 * ---------------------------------------------------------
+		 * 2. EXISTING TICKET UPDATE HAS HIGHEST PRIORITY.
+		 * ---------------------------------------------------------
+		 *
+		 * This must happen BEFORE human escalation detection.
+		 *
+		 * Example:
+		 *
+		 * "Update the ticket and say I need a person with good
+		 * design skills."
+		 *
+		 * The phrase "I need a person" is NOT a new escalation
+		 * workflow because the customer explicitly said:
+		 *
+		 * "Update the ticket."
+		 */
+		if (
+			self::is_ticket_update_request(
+				$current_message
+			)
+		) {
+
+			if ( $verified_ticket ) {
+
+				$ticket_status =
+					isset( $verified_ticket['status'] )
+						? sanitize_key(
+							$verified_ticket['status']
+						)
+						: '';
+
+				if (
+					in_array(
+						$ticket_status,
+						array(
+							'open',
+							'in_progress',
+							'waiting_customer',
+						),
+						true
+					)
+				) {
+
+					return array(
+						'state' =>
+							self::STATE_TICKET_UPDATE_AUTHORIZED,
+
+						'next_action' =>
+							'update_ticket',
+
+						'required_tool' =>
+							'update_ticket',
+
+						'tool_choice' =>
+							'required',
+
+						'customer_id' =>
+							$customer_id,
+
+						'conversation_id' =>
+							$conversation_id,
+
+						'pending' =>
+							false,
+
+						'confirmation' =>
+							false,
+
+						'new_ticket' =>
+							false,
+
+						'ticket_key' =>
+							isset(
+								$verified_ticket['ticket_key']
+							)
+								? strtoupper(
+									sanitize_text_field(
+										$verified_ticket['ticket_key']
+									)
+								)
+								: '',
+					);
+				}
+			}
+
+			/*
+			 * The customer explicitly requested an update, but PHP
+			 * does not currently have an authorized ticket context.
+			 *
+			 * Do NOT turn this into a new-ticket request.
+			 */
+			return array(
+				'state' =>
+					self::STATE_TICKET_UPDATE_REQUESTED,
+
+				'next_action' =>
+					'require_ticket_verification',
+
+				'required_tool' =>
+					'',
+
+				'tool_choice' =>
+					'auto',
+
+				'customer_id' =>
+					$customer_id,
+
+				'conversation_id' =>
+					$conversation_id,
+
+				'pending' =>
+					false,
+
+				'confirmation' =>
+					false,
+
+				'new_ticket' =>
+					false,
+
+				'ticket_key' =>
+					$verified_ticket &&
+					isset(
+						$verified_ticket['ticket_key']
+					)
+						? strtoupper(
+							sanitize_text_field(
+								$verified_ticket['ticket_key']
+							)
+						)
+						: $active_ticket_key,
+			);
+		}
+
+		/*
+		 * ---------------------------------------------------------
+		 * 3. Detect NEW TICKET and HUMAN ESCALATION intent.
+		 * ---------------------------------------------------------
+		 *
+		 * This happens only after existing-ticket update intent
+		 * has been ruled out.
 		 */
 		$new_ticket_request =
 			self::is_new_ticket_request(
@@ -97,11 +311,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 			);
 
 		/*
-		 * Start or update pending escalation state.
-		 *
-		 * An explicit new-ticket request authorizes the workflow,
-		 * but does NOT authorize database creation until meaningful
-		 * ticket details and customer identity are available.
+		 * ---------------------------------------------------------
+		 * 4. Start/update pending ticket workflow.
+		 * ---------------------------------------------------------
 		 */
 		if (
 			$new_ticket_request ||
@@ -119,7 +331,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Continue a pending ticket request.
+		 * ---------------------------------------------------------
+		 * 5. Continue pending NEW TICKET workflow.
+		 * ---------------------------------------------------------
 		 */
 		if ( ! empty( $pending ) ) {
 
@@ -132,14 +346,31 @@ class WP_RapidRescue_Chat_Control_Engine {
 					)
 					: '';
 
+			/*
+			 * If an old pending summary is merely a workflow command,
+			 * discard it. Never allow an old command to become the
+			 * actual ticket issue.
+			 */
+			if (
+				'' !== $summary &&
+				'' === self::extract_ticket_detail(
+					$summary
+				)
+			) {
+				$summary = '';
+				$pending['summary'] = '';
+				$pending['confirmed'] = false;
+			}
+
 			$current_detail =
 				self::extract_ticket_detail(
 					$current_message
 				);
 
 			/*
-			 * Only use the current message as ticket details when
-			 * it contains meaningful issue information.
+			 * Only the current customer message can add new details
+			 * when the pending request does not already contain
+			 * meaningful details.
 			 */
 			if (
 				'' === $summary &&
@@ -198,6 +429,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 			 */
 			if ( '' === trim( $summary ) ) {
 
+				$pending['confirmed'] =
+					false;
+
 				self::save_pending(
 					$conversation_id,
 					$pending
@@ -234,12 +468,14 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			/*
-			 * Customer identity + meaningful details =
-			 * PHP-authorized ticket creation.
-			 *
-			 * No second confirmation is required.
+			 * Customer identity + meaningful ticket details are
+			 * sufficient for automatic creation.
 			 */
-			$pending['confirmed'] = true;
+			$pending['summary'] =
+				$summary;
+
+			$pending['confirmed'] =
+				true;
 
 			self::save_pending(
 				$conversation_id,
@@ -277,51 +513,37 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Existing verified ticket workflow.
+		 * ---------------------------------------------------------
+		 * 6. Existing active verified ticket.
+		 * ---------------------------------------------------------
 		 */
-		$verified_ticket =
-			self::get_verified_ticket(
-				$ticket_context
-			);
+		if ( $verified_ticket ) {
 
-		if (
-			$verified_ticket &&
-			self::is_ticket_update_request(
-				$current_message
-			)
-		) {
-
-			$ticket_status =
-				isset( $verified_ticket['status'] )
-					? sanitize_key(
-						$verified_ticket['status']
+			$ticket_key =
+				isset(
+					$verified_ticket['ticket_key']
+				)
+					? strtoupper(
+						sanitize_text_field(
+							$verified_ticket['ticket_key']
+						)
 					)
 					: '';
 
-			if (
-				in_array(
-					$ticket_status,
-					array(
-						'open',
-						'in_progress',
-						'waiting_customer',
-					),
-					true
-				)
-			) {
+			if ( '' !== $ticket_key ) {
 
 				return array(
 					'state' =>
-						self::STATE_TICKET_UPDATE_AUTHORIZED,
+						self::STATE_TICKET_ACTIVE,
 
 					'next_action' =>
-						'update_ticket',
+						'use_active_ticket',
 
 					'required_tool' =>
-						'update_ticket',
+						'',
 
 					'tool_choice' =>
-						'required',
+						'auto',
 
 					'customer_id' =>
 						$customer_id,
@@ -339,57 +561,15 @@ class WP_RapidRescue_Chat_Control_Engine {
 						false,
 
 					'ticket_key' =>
-						isset(
-							$verified_ticket['ticket_key']
-						)
-							? sanitize_text_field(
-								$verified_ticket['ticket_key']
-							)
-							: '',
+						$ticket_key,
 				);
 			}
-
-			return array(
-				'state' =>
-					self::STATE_TICKET_UPDATE_REQUESTED,
-
-				'next_action' =>
-					'ticket_not_updateable',
-
-				'required_tool' =>
-					'',
-
-				'tool_choice' =>
-					'auto',
-
-				'customer_id' =>
-					$customer_id,
-
-				'conversation_id' =>
-					$conversation_id,
-
-				'pending' =>
-					false,
-
-				'confirmation' =>
-					false,
-
-				'new_ticket' =>
-					false,
-
-				'ticket_key' =>
-					isset(
-						$verified_ticket['ticket_key']
-					)
-						? sanitize_text_field(
-							$verified_ticket['ticket_key']
-						)
-						: '',
-			);
 		}
 
 		/*
-		 * Existing active verified ticket.
+		 * ---------------------------------------------------------
+		 * 7. Existing active ticket key without full ticket context.
+		 * ---------------------------------------------------------
 		 */
 		if ( '' !== $active_ticket_key ) {
 
@@ -427,7 +607,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Unverified ticket requires verification.
+		 * ---------------------------------------------------------
+		 * 8. Unverified ticket requires verification.
+		 * ---------------------------------------------------------
 		 */
 		foreach ( $ticket_context as $ticket ) {
 
@@ -515,6 +697,39 @@ class WP_RapidRescue_Chat_Control_Engine {
 			$context = array();
 		}
 
+		/*
+		 * Populate active ticket state directly from the
+		 * conversation record when possible.
+		 *
+		 * This makes the multi-tool state explicit and prevents
+		 * the AI from having to infer the active ticket from history.
+		 */
+		$conversation_id =
+			absint(
+				isset(
+					$context['conversation_id']
+				)
+					? $context['conversation_id']
+					: 0
+			);
+
+		if ( $conversation_id > 0 ) {
+
+			$active_ticket_key =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+					$conversation_id
+				);
+
+			if ( '' !== $active_ticket_key ) {
+
+				$context['active_ticket_key'] =
+					$active_ticket_key;
+			}
+		}
+
+		/*
+		 * Evaluate AFTER active ticket state has been restored.
+		 */
 		$decision =
 			self::evaluate(
 				$context
@@ -527,11 +742,12 @@ class WP_RapidRescue_Chat_Control_Engine {
 		 * This flag is generated entirely by PHP.
 		 *
 		 * It means:
+		 *
 		 * - customer identity exists
 		 * - meaningful ticket details exist
-		 * - new ticket creation is authorized
+		 * - the Control Engine authorized creation
 		 *
-		 * It does NOT mean the customer typed "yes".
+		 * It does NOT mean that the customer typed "yes".
 		 */
 		$context['explicit_ticket_confirmation'] =
 			(
@@ -553,15 +769,6 @@ class WP_RapidRescue_Chat_Control_Engine {
 		/*
 		 * Refresh persisted pending state.
 		 */
-		$conversation_id =
-			absint(
-				isset(
-					$context['conversation_id']
-				)
-					? $context['conversation_id']
-					: 0
-			);
-
 		if ( $conversation_id > 0 ) {
 
 			$pending =
@@ -725,7 +932,8 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Never store a workflow command as the ticket summary.
+		 * Only use the current message when it contains meaningful
+		 * ticket information.
 		 */
 		if ( '' === trim( $summary ) ) {
 
@@ -740,9 +948,17 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Creation becomes confirmed only after both required
-		 * application conditions are satisfied.
+		 * Never treat a workflow command as ticket details.
 		 */
+		if (
+			'' !== trim( $summary ) &&
+			'' === self::extract_ticket_detail(
+				$summary
+			)
+		) {
+			$summary = '';
+		}
+
 		$confirmed =
 			(
 				$customer_id > 0 &&
@@ -875,6 +1091,8 @@ class WP_RapidRescue_Chat_Control_Engine {
 			'confirm',
 			'confirmed',
 			'go ahead',
+			'go ahead and create it',
+			'go ahead and create the ticket',
 			'do it',
 		);
 
@@ -1123,6 +1341,11 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 			'/\bupdate my case\b/i',
 			'/\bupdate my support request\b/i',
+
+			'/\bupdate the ticket\b/i',
+			'/\bupdate this ticket\b/i',
+			'/\badd this to the ticket\b/i',
+			'/\badd that to the ticket\b/i',
 		);
 
 		foreach ( $patterns as $pattern ) {
@@ -1138,6 +1361,46 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Determine whether ticket context represents a verified ticket.
+	 *
+	 * Both forms are accepted:
+	 *
+	 * 1. verified = true
+	 * 2. lookup_status = verified
+	 *
+	 * The second form is currently used by REST ticket context.
+	 *
+	 * @param array $ticket Ticket context.
+	 * @return bool
+	 */
+	private static function ticket_context_is_verified(
+		$ticket
+	) {
+
+		if ( ! is_array( $ticket ) ) {
+			return false;
+		}
+
+		if (
+			! empty(
+				$ticket['verified']
+			)
+		) {
+			return true;
+		}
+
+		return (
+			isset(
+				$ticket['lookup_status']
+			) &&
+			'verified' ===
+				sanitize_key(
+					$ticket['lookup_status']
+				)
+		);
 	}
 
 	/**
@@ -1163,8 +1426,8 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			if (
-				empty(
-					$ticket['verified']
+				! self::ticket_context_is_verified(
+					$ticket
 				)
 			) {
 				continue;
