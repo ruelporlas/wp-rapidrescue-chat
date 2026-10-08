@@ -1092,10 +1092,14 @@ class WP_RapidRescue_Chat_REST_API {
 					$customer_id
 				);
 
+				/*
+				 * PHP is the sole authority for the final ticket
+				 * confirmation. Never reuse the AI-generated
+				 * confirmation text here.
+				 */
 				$assistant_text =
 					self::build_ticket_confirmation(
-						$ticket_key,
-						$assistant_text
+						$ticket_key
 					);
 			}
 		} elseif (
@@ -1905,10 +1909,18 @@ class WP_RapidRescue_Chat_REST_API {
 					? $tool_result['result']
 					: array();
 
+			/*
+			 * A successful tool call is not enough.
+			 *
+			 * PHP must explicitly confirm that a NEW ticket was
+			 * actually created. This prevents an existing ticket or
+			 * incomplete tool response from being treated as a new
+			 * ticket.
+			 */
 			if (
-				empty(
-					$result['success']
-				)
+				empty( $result['success'] ) ||
+				empty( $result['created'] ) ||
+				! empty( $result['already_exists'] )
 			) {
 				continue;
 			}
@@ -1953,13 +1965,14 @@ class WP_RapidRescue_Chat_REST_API {
 	/**
 	 * Build customer-facing ticket confirmation.
 	 *
+	 * PHP is authoritative for the final message.
+	 * The AI response is deliberately ignored.
+	 *
 	 * @param string $ticket_key Ticket key.
-	 * @param string $assistant_text AI response.
 	 * @return string
 	 */
 	private static function build_ticket_confirmation(
-		$ticket_key,
-		$assistant_text
+		$ticket_key
 	) {
 
 		$ticket_key =
@@ -1967,37 +1980,13 @@ class WP_RapidRescue_Chat_REST_API {
 				$ticket_key
 			);
 
-		$assistant_text =
-			trim(
-				(string) $assistant_text
-			);
+		if ( '' === $ticket_key ) {
 
-		if ( '' !== $assistant_text ) {
-
-			$assistant_text =
-				preg_replace(
-					'/\bRR-\d{1,10}\b/i',
-					'',
-					$assistant_text
-				);
-
-			$assistant_text =
-				trim(
-					preg_replace(
-						'/\s+/',
-						' ',
-						$assistant_text
-					)
-				);
-
-			return $assistant_text .
-				' Your support ticket number is ' .
-				$ticket_key .
-				'.';
+			return 'Your support request has been processed, but I could not confirm the ticket number.';
 		}
 
 		return sprintf(
-			'Your support request has been escalated to our support team. Your ticket number is %s.',
+			'Your support ticket has been created successfully. Your ticket number is %s.',
 			$ticket_key
 		);
 	}
