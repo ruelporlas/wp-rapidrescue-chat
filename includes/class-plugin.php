@@ -1022,4 +1022,4 @@ class WP_RapidRescue_Chat_Plugin {
 	public static function deactivate() {
 		// No cleanup is performed on deactivation.
 	}
-}
+} 
