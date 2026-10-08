@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
-	const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+	const API_ENDPOINT    = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 	const MAX_TOOL_ROUNDS = 6;
 
 	public function get_id() {
@@ -93,30 +93,47 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				)
 				: array();
 
+		/*
+		 * The Control Engine may require one specific tool on the
+		 * first provider request.
+		 *
+		 * IMPORTANT:
+		 *
+		 * This requirement is consumed after that tool is executed.
+		 * We must NOT continue forcing the same tool during the
+		 * follow-up interaction, otherwise operations such as
+		 * update_ticket could execute repeatedly.
+		 */
 		$required_tool =
 			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
 				$context
 			);
 
-		/*
-		 * The Control Engine can force Gemini to call a specific
-		 * application tool. This is still AI tool calling; PHP does
-		 * not execute the tool behind Gemini's back.
-		 */
-		$generation_config = array();
+		$force_required_tool = true;
+
+		$request_body = array(
+			'model'              => $model,
+			'input'              => (string) $message,
+			'system_instruction' => (string) $system_instruction,
+			'tools'              => $tools,
+			'store'              => true,
+		);
 
 		if ( '' !== $required_tool ) {
 
-			$generation_config['tool_choice'] =
+			$request_body['generation_config'] =
 				array(
-					'allowed_tools' =>
+					'tool_choice' =>
 						array(
-							'mode' =>
-								'any',
-
-							'tools' =>
+							'allowed_tools' =>
 								array(
-									$required_tool,
+									'mode' =>
+										'any',
+
+									'tools' =>
+										array(
+											$required_tool,
+										),
 								),
 						),
 				);
@@ -128,19 +145,6 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						$required_tool,
 				)
 			);
-		}
-
-		$request_body = array(
-			'model'              => $model,
-			'input'              => (string) $message,
-			'system_instruction' => (string) $system_instruction,
-			'tools'              => $tools,
-			'store'              => true,
-		);
-
-		if ( ! empty( $generation_config ) ) {
-			$request_body['generation_config'] =
-				$generation_config;
 		}
 
 		WP_RapidRescue_Chat_Debug::ai(
@@ -164,13 +168,37 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		);
 
 		$interaction_id = '';
-		$tool_results = array();
+		$tool_results   = array();
 
 		for (
 			$round = 0;
 			$round < self::MAX_TOOL_ROUNDS;
 			$round++
 		) {
+
+			/*
+			 * Only the first request may be forced by the
+			 * deterministic Control Engine.
+			 *
+			 * Once a required tool has executed, the next
+			 * interaction lets Gemini respond naturally based
+			 * on the actual PHP tool result.
+			 */
+			if (
+				$round > 0 &&
+				$force_required_tool
+			) {
+
+				unset(
+					$request_body['generation_config']
+				);
+
+				$force_required_tool = false;
+
+				WP_RapidRescue_Chat_Debug::ai(
+					'Gemini required tool consumed; allowing normal follow-up response'
+				);
+			}
 
 			$result =
 				$this->request(
@@ -338,6 +366,29 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 							$tool_result,
 					);
 
+				/*
+				 * Tool execution has now consumed the first
+				 * required application action.
+				 *
+				 * Never force the same Control Engine requirement
+				 * again during this provider call.
+				 */
+				if (
+					'' !== $required_tool &&
+					$tool_name === $required_tool
+				) {
+
+					$force_required_tool = false;
+
+					WP_RapidRescue_Chat_Debug::ai(
+						'Required Gemini tool executed',
+						array(
+							'tool' =>
+								$tool_name,
+						)
+					);
+				}
+
 				if ( is_array( $tool_result ) ) {
 
 					if (
@@ -461,9 +512,11 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			/*
-			 * After the required tool has executed, Gemini should
-			 * decide how to communicate the result. Do not force
-			 * another tool call.
+			 * The requested tool has now executed.
+			 *
+			 * The next Gemini interaction is deliberately normal.
+			 * Gemini receives the authoritative tool result and
+			 * should formulate the customer-facing response.
 			 */
 			$request_body = array(
 				'model' =>
@@ -739,7 +792,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				)
 				: '';
 
-		$text = '';
+		$text       = '';
 		$tool_calls = array();
 
 		if (
