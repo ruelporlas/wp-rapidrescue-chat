@@ -118,6 +118,42 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				),
 			),
 
+			'update_ticket' => array(
+				'name'        => 'update_ticket',
+				'description' =>
+					'Update an existing verified customer support ticket when the customer says the issue is still unresolved, provides a follow-up, adds information, or asks for the ticket to be prioritized. PHP verifies customer ownership and ticket access before any update is written. Use the customer\'s actual follow-up message as the update; never invent facts or promise a resolution time.',
+				'parameters'  => array(
+					'type'       => 'object',
+					'properties' => array(
+						'ticket_key' => array(
+							'type'        => 'string',
+							'description' =>
+								'The existing support ticket reference, such as RR-00005.',
+						),
+						'update_message' => array(
+							'type'        => 'string',
+							'description' =>
+								'A concise factual note containing the customer\'s follow-up or new information. Preserve the customer\'s requested urgency without promising that the issue will be resolved by a particular time.',
+						),
+						'priority' => array(
+							'type'        => 'string',
+							'enum'        => array(
+								'low',
+								'normal',
+								'high',
+								'urgent',
+							),
+							'description' =>
+								'Optional requested priority. Keep the existing priority unless the customer clearly requests urgency or the issue warrants escalation.',
+						),
+					),
+					'required'   => array(
+						'ticket_key',
+						'update_message',
+					),
+				),
+			),
+
 			'create_ticket' => array(
 				'name'        => 'create_ticket',
 				'description' =>
@@ -243,6 +279,12 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 			case 'verify_ticket':
 				return self::verify_ticket(
+					$arguments,
+					$context
+				);
+
+			case 'update_ticket':
+				return self::update_ticket(
 					$arguments,
 					$context
 				);
@@ -463,7 +505,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	 * Verify a ticket.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Tool context.
+	 * @param array $context   Tool execution context.
 	 * @return array|WP_Error
 	 */
 	private static function verify_ticket(
@@ -629,6 +671,297 @@ class WP_RapidRescue_Chat_Tool_Manager {
 					)
 						? $context['verified_ticket_keys']
 						: array(),
+			),
+		);
+	}
+
+	/**
+	 * Update an existing verified support ticket.
+	 *
+	 * PHP is the final authority. The AI may request an update,
+	 * but it cannot update a ticket unless the current execution
+	 * context proves that the customer has verified access to it.
+	 *
+	 * @param array $arguments Tool arguments.
+	 * @param array $context   Tool context.
+	 * @return array|WP_Error
+	 */
+	private static function update_ticket(
+		$arguments,
+		$context
+	) {
+
+		$ticket_key = isset( $arguments['ticket_key'] )
+			? strtoupper(
+				sanitize_text_field(
+					$arguments['ticket_key']
+				)
+			)
+			: '';
+
+		$update_message = isset( $arguments['update_message'] )
+			? sanitize_textarea_field(
+				$arguments['update_message']
+			)
+			: '';
+
+		$requested_priority = isset( $arguments['priority'] )
+			? sanitize_key( $arguments['priority'] )
+			: '';
+
+		if (
+			'' === $ticket_key ||
+			! preg_match(
+				'/^RR-\d{1,10}$/',
+				$ticket_key
+			)
+		) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'invalid_ticket_reference',
+				'next_action' => 'ask_customer_to_check_ticket_number',
+			);
+		}
+
+		if ( '' === trim( $update_message ) ) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'invalid_update_message',
+				'next_action' => 'ask_customer_for_update_details',
+			);
+		}
+
+		$ticket =
+			WP_RapidRescue_Chat_Ticket::get_by_key(
+				$ticket_key
+			);
+
+		if ( ! $ticket ) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'not_found',
+				'next_action' => 'ask_customer_to_check_ticket_details',
+			);
+		}
+
+		/*
+		 * SECURITY GATE
+		 *
+		 * A ticket number alone is never sufficient to modify a ticket.
+		 *
+		 * can_access_ticket() requires:
+		 *
+		 * - an identified customer
+		 * - customer ownership of the ticket
+		 * - a PHP-established verified ticket reference
+		 */
+		if (
+			! WP_RapidRescue_Chat_Tool_Security::can_access_ticket(
+				$ticket,
+				$context
+			)
+		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'update_ticket blocked by PHP security gate',
+				array(
+					'ticket_key' => $ticket_key,
+				)
+			);
+
+			return array(
+				'success'     => false,
+				'state'       => 'ticket_verification_required',
+				'next_action' => 'verify_ticket_before_update',
+			);
+		}
+
+		/*
+		 * Customer follow-ups are only allowed while the ticket
+		 * is active. Resolved and closed tickets require a separate
+		 * workflow rather than silently reopening them.
+		 */
+		if (
+			! in_array(
+				$ticket->status,
+				array(
+					'open',
+					'in_progress',
+					'waiting_customer',
+				),
+				true
+			)
+		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'update_ticket blocked: ticket is not active',
+				array(
+					'ticket_key' => $ticket_key,
+					'status'     => sanitize_key( $ticket->status ),
+				)
+			);
+
+			return array(
+				'success'     => false,
+				'state'       => 'ticket_not_updateable',
+				'next_action' => 'tell_customer_ticket_not_updateable',
+				'data'        => array(
+					'ticket' =>
+						WP_RapidRescue_Chat_Tool_Security::ticket_to_safe_array(
+							$ticket
+						),
+				),
+			);
+		}
+
+		/*
+		 * Append the follow-up to the existing summary.
+		 *
+		 * We do not replace the original issue. This preserves
+		 * the history of what the customer originally reported.
+		 *
+		 * PHP supplies the date so the record has an authoritative
+		 * follow-up date even if the AI does not mention one.
+		 */
+		$follow_up_date =
+			wp_date(
+				'F j, Y',
+				current_time(
+					'timestamp',
+					true
+				)
+			);
+
+		$follow_up =
+			'Customer follow-up (' .
+			$follow_up_date .
+			'): ' .
+			trim(
+				$update_message
+			);
+
+		$existing_summary =
+			sanitize_textarea_field(
+				isset(
+					$ticket->summary
+				)
+					? $ticket->summary
+					: ''
+			);
+
+		if ( '' !== trim( $existing_summary ) ) {
+
+			$new_summary =
+				$existing_summary .
+				"\n\n" .
+				$follow_up;
+
+		} else {
+
+			$new_summary =
+				$follow_up;
+		}
+
+		$priority = '';
+
+		if (
+			in_array(
+				$requested_priority,
+				array(
+					'low',
+					'normal',
+					'high',
+					'urgent',
+				),
+				true
+			)
+		) {
+
+			$priority =
+				$requested_priority;
+		}
+
+		$update_result =
+			WP_RapidRescue_Chat_Ticket::update(
+				absint( $ticket->id ),
+				'',
+				$new_summary,
+				'',
+				$priority
+			);
+
+		if ( is_wp_error( $update_result ) ) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'update_ticket database update failed',
+				array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'error_code' =>
+						$update_result->get_error_code(),
+				)
+			);
+
+			return array(
+				'success'     => false,
+				'state'       => 'update_failed',
+				'next_action' => 'tell_customer_update_failed',
+			);
+		}
+
+		/*
+		 * Confirm the database update before telling the AI
+		 * that the operation succeeded.
+		 */
+		$updated_ticket =
+			WP_RapidRescue_Chat_Ticket::get_by_id(
+				absint( $ticket->id )
+			);
+
+		if ( ! $updated_ticket ) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'update_unconfirmed',
+				'next_action' => 'tell_customer_update_failed',
+			);
+		}
+
+		WP_RapidRescue_Chat_Debug::tool(
+			'update_ticket succeeded',
+			array(
+				'ticket_key' =>
+					$ticket_key,
+
+				'priority' =>
+					sanitize_key(
+						$updated_ticket->priority
+					),
+			)
+		);
+
+		return array(
+			'success'     => true,
+			'state'       => 'updated',
+			'next_action' => 'tell_customer_ticket_updated',
+			'updated'     => true,
+			'ticket_id'   =>
+				absint(
+					$updated_ticket->id
+				),
+			'ticket_key'  =>
+				sanitize_text_field(
+					$updated_ticket->ticket_key
+				),
+			'data'        => array(
+				'ticket' =>
+					WP_RapidRescue_Chat_Tool_Security::ticket_to_safe_array(
+						$updated_ticket
+					),
 			),
 		);
 	}

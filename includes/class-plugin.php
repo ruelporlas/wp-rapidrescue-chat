@@ -14,8 +14,18 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_Plugin {
 
+	/**
+	 * Singleton instance.
+	 *
+	 * @var WP_RapidRescue_Chat_Plugin|null
+	 */
 	private static $instance = null;
 
+	/**
+	 * Get plugin instance.
+	 *
+	 * @return WP_RapidRescue_Chat_Plugin
+	 */
 	public static function instance() {
 
 		if ( null === self::$instance ) {
@@ -25,6 +35,9 @@ class WP_RapidRescue_Chat_Plugin {
 		return self::$instance;
 	}
 
+	/**
+	 * Constructor.
+	 */
 	private function __construct() {
 
 		$this->load_dependencies();
@@ -86,6 +99,11 @@ class WP_RapidRescue_Chat_Plugin {
 		WP_RapidRescue_Chat_Chat_Widget::init();
 	}
 
+	/**
+	 * Load plugin dependencies.
+	 *
+	 * @return void
+	 */
 	private function load_dependencies() {
 
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
@@ -148,8 +166,16 @@ class WP_RapidRescue_Chat_Plugin {
 			'admin/class-tickets.php';
 	}
 
+	/**
+	 * Register plugin admin menu and submenus.
+	 *
+	 * @return void
+	 */
 	public function register_admin_menu() {
 
+		/*
+		 * Main plugin menu.
+		 */
 		add_menu_page(
 			'WP RapidRescue Chat',
 			'WP RapidRescue Chat',
@@ -162,16 +188,287 @@ class WP_RapidRescue_Chat_Plugin {
 			'dashicons-format-chat',
 			58
 		);
+
+		/*
+		 * Dashboard.
+		 *
+		 * Re-register the same slug as a submenu so the top-level
+		 * menu has a proper Dashboard entry.
+		 */
+		add_submenu_page(
+			'wp-rapidrescue-chat',
+			'Dashboard',
+			'Dashboard',
+			'manage_options',
+			'wp-rapidrescue-chat',
+			array(
+				$this,
+				'render_admin_page',
+			)
+		);
+
+		/*
+		 * Settings.
+		 */
+		add_submenu_page(
+			'wp-rapidrescue-chat',
+			'Settings',
+			'Settings',
+			'manage_options',
+			'wp-rapidrescue-chat-settings',
+			array(
+				$this,
+				'render_settings_page',
+			)
+		);
+
+		/*
+		 * Conversations.
+		 */
+		add_submenu_page(
+			'wp-rapidrescue-chat',
+			'Conversations',
+			'Conversations',
+			'manage_options',
+			'wp-rapidrescue-conversations',
+			array(
+				'WP_RapidRescue_Chat_Conversations_Admin',
+				'render',
+			)
+		);
+
+		/*
+		 * Tickets.
+		 */
+		add_submenu_page(
+			'wp-rapidrescue-chat',
+			'Tickets',
+			'Tickets',
+			'manage_options',
+			'wp-rapidrescue-tickets',
+			array(
+				'WP_RapidRescue_Chat_Tickets_Admin',
+				'render',
+			)
+		);
+
+		/*
+		 * Knowledge Base is registered by class-knowledge.php with:
+		 *
+		 * show_in_menu => wp-rapidrescue-chat
+		 *
+		 * Therefore WordPress automatically places it underneath
+		 * this top-level menu. We intentionally do not register it
+		 * again here.
+		 */
 	}
 
+	/**
+	 * Render the plugin dashboard.
+	 *
+	 * @return void
+	 */
 	public function render_admin_page() {
 
-		echo '<div class="wrap">';
-		echo '<h1>WP RapidRescue Chat</h1>';
-		echo '<p>Use the submenu pages to manage settings, conversations, tickets, and business knowledge.</p>';
-		echo '</div>';
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		?>
+		<div class="wrap">
+
+			<h1>WP RapidRescue Chat</h1>
+
+			<p>
+				Manage your AI customer support assistant,
+				conversations, tickets, settings, and business knowledge.
+			</p>
+
+			<div
+				style="
+					display:grid;
+					grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+					gap:20px;
+					max-width:1000px;
+					margin-top:25px;
+				"
+			>
+
+				<div
+					style="
+						background:#fff;
+						border:1px solid #dcdcde;
+						border-radius:8px;
+						padding:22px;
+					"
+				>
+					<h2 style="margin-top:0;">
+						AI Settings
+					</h2>
+
+					<p>
+						Configure your AI provider, model, API credentials,
+						and assistant behavior.
+					</p>
+
+					<p>
+						<a
+							class="button button-primary"
+							href="<?php echo esc_url(
+								admin_url(
+									'admin.php?page=wp-rapidrescue-chat-settings'
+								)
+							); ?>"
+						>
+							Open Settings
+						</a>
+					</p>
+				</div>
+
+				<div
+					style="
+						background:#fff;
+						border:1px solid #dcdcde;
+						border-radius:8px;
+						padding:22px;
+					"
+				>
+					<h2 style="margin-top:0;">
+						Conversations
+					</h2>
+
+					<p>
+						Review customer conversations handled by
+						WP RapidRescue Chat.
+					</p>
+
+					<p>
+						<a
+							class="button"
+							href="<?php echo esc_url(
+								admin_url(
+									'admin.php?page=wp-rapidrescue-conversations'
+								)
+							); ?>"
+						>
+							View Conversations
+						</a>
+					</p>
+				</div>
+
+				<div
+					style="
+						background:#fff;
+						border:1px solid #dcdcde;
+						border-radius:8px;
+						padding:22px;
+					"
+				>
+					<h2 style="margin-top:0;">
+						Tickets
+					</h2>
+
+					<p>
+						Manage support tickets created by the AI assistant.
+					</p>
+
+					<p>
+						<a
+							class="button"
+							href="<?php echo esc_url(
+								admin_url(
+									'admin.php?page=wp-rapidrescue-tickets'
+								)
+							); ?>"
+						>
+							View Tickets
+						</a>
+					</p>
+				</div>
+
+				<div
+					style="
+						background:#fff;
+						border:1px solid #dcdcde;
+						border-radius:8px;
+						padding:22px;
+					"
+				>
+					<h2 style="margin-top:0;">
+						Knowledge Base
+					</h2>
+
+					<p>
+						Manage the business information the AI is allowed
+						to use when answering customers.
+					</p>
+
+					<p>
+						<a
+							class="button"
+							href="<?php echo esc_url(
+								admin_url(
+									'edit.php?post_type=rr_knowledge'
+								)
+							); ?>"
+						>
+							Manage Knowledge
+						</a>
+					</p>
+				</div>
+
+			</div>
+
+		</div>
+		<?php
 	}
 
+	/**
+	 * Render plugin settings page.
+	 *
+	 * @return void
+	 */
+	public function render_settings_page() {
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		?>
+		<div class="wrap">
+
+			<h1>WP RapidRescue Chat Settings</h1>
+
+			<form
+				method="post"
+				action="options.php"
+			>
+
+				<?php
+				settings_fields(
+					'wp_rapidrescue_chat_settings_group'
+				);
+
+				do_settings_sections(
+					'wp-rapidrescue-chat'
+				);
+
+				submit_button(
+					'Save Settings'
+				);
+				?>
+
+			</form>
+
+		</div>
+		<?php
+	}
+
+	/**
+	 * Test the configured AI connection.
+	 *
+	 * @return void
+	 */
 	public function test_ai_connection() {
 
 		if (
@@ -247,6 +544,11 @@ class WP_RapidRescue_Chat_Plugin {
 		);
 	}
 
+	/**
+	 * Plugin activation.
+	 *
+	 * @return void
+	 */
 	public static function activate() {
 
 		$defaults =
@@ -284,6 +586,11 @@ class WP_RapidRescue_Chat_Plugin {
 		);
 	}
 
+	/**
+	 * Plugin deactivation.
+	 *
+	 * @return void
+	 */
 	public static function deactivate() {
 		// No cleanup is performed on deactivation.
 	}
