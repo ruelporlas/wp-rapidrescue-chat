@@ -128,8 +128,6 @@ class WP_RapidRescue_Chat_Control_Engine {
 		 * 2. Continue an existing pending NEW ticket request.
 		 * ---------------------------------------------------------
 		 *
-		 * This is the important cross-turn state.
-		 *
 		 * Example:
 		 *
 		 * Turn 1:
@@ -409,6 +407,15 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 				'new_ticket' =>
 					false,
+
+				'ticket_key' =>
+					isset(
+						$verified_ticket['ticket_key']
+					)
+						? sanitize_text_field(
+							$verified_ticket['ticket_key']
+						)
+						: '',
 			);
 		}
 
@@ -424,7 +431,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 					self::STATE_TICKET_ACTIVE,
 
 				'next_action' =>
-					'use_active_ticket,
+					'use_active_ticket',
 
 				'required_tool' =>
 					'',
