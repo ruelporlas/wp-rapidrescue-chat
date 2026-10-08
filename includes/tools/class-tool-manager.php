@@ -121,7 +121,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			'create_ticket' => array(
 				'name'        => 'create_ticket',
 				'description' =>
-					'Create a new human-support ticket. PHP controls whether ticket creation is authorized and generates the ticket number. Never invent a ticket number.',
+					'Create a new human-support ticket. PHP controls authorization, pending escalation state, duplicate prevention, and ticket number generation. Never invent a ticket number.',
 				'parameters'  => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -200,7 +200,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$tool_name,
 		$arguments = array(),
 		$context = array()
-	) { 
+	) {
 
 		self::init();
 
@@ -278,8 +278,8 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 		if ( '' === trim( $query ) ) {
 			return array(
-				'success'    => false,
-				'state'      => 'invalid_request',
+				'success'     => false,
+				'state'       => 'invalid_request',
 				'next_action' => 'ask_for_knowledge_query',
 			);
 		}
@@ -395,9 +395,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	/**
 	 * Start a ticket lookup.
 	 *
-	 * The existence result is used internally by the PHP workflow.
-	 * No private ticket fields are returned.
-	 *
 	 * @param array $arguments Tool arguments.
 	 * @param array $context   Tool context.
 	 * @return array|WP_Error
@@ -437,13 +434,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$ticket_key
 			);
 
-		/*
-		 * We do not expose private ticket data here.
-		 *
-		 * The old REST workflow needs to know internally whether
-		 * a record exists so it can continue its PHP-controlled
-		 * verification flow.
-		 */
 		if ( ! $ticket ) {
 
 			return array(
@@ -471,12 +461,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 	/**
 	 * Verify a ticket.
-	 *
-	 * The supplied email is the evidence used to authorize access
-	 * to the ticket. Existing customer context is used when useful,
-	 * but it must not prevent a legitimate legacy ticket from being
-	 * verified when the ticket's own email/customer relationship
-	 * matches the supplied email.
 	 *
 	 * @param array $arguments Tool arguments.
 	 * @param array $context   Tool context.
@@ -544,10 +528,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * First verify against the ticket's own stored email or
-		 * its associated customer's email.
-		 */
 		$ticket_customer = null;
 
 		if ( absint( $ticket->customer_id ) > 0 ) {
@@ -574,23 +554,11 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * We have now proven that the supplied email belongs to
-		 * this ticket.
-		 *
-		 * Determine the authoritative customer.
-		 */
 		$verified_customer_id =
 			absint(
 				$ticket->customer_id
 			);
 
-		/*
-		 * Legacy anonymous ticket:
-		 *
-		 * The ticket has no customer_id, but the supplied email
-		 * identifies an existing customer.
-		 */
 		if ( $verified_customer_id < 1 ) {
 
 			$email_customer =
@@ -605,9 +573,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 						$email_customer->id
 					);
 
-				/*
-				 * Attach the legacy ticket to the verified customer.
-				 */
 				$assign_result =
 					WP_RapidRescue_Chat_Ticket::assign_customer(
 						$ticket->id,
@@ -631,14 +596,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			}
 		}
 
-		/*
-		 * If the ticket has an associated customer, the supplied
-		 * email has already been checked against that customer's
-		 * email or the ticket's stored customer_email.
-		 *
-		 * Do not let an earlier conversation identity prevent the
-		 * actual ticket/email verification from succeeding.
-		 */
 		$context['customer_id'] =
 			$verified_customer_id;
 
@@ -652,26 +609,17 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			'success'     => true,
 			'state'       => 'verified',
 			'next_action' => 'provide_ticket_information',
-
 			'data'        => array(
 				'ticket' =>
 					WP_RapidRescue_Chat_Tool_Security::ticket_to_safe_array(
 						$ticket
 					),
 			),
-
-			/*
-			 * Keep these at the top level as well because the
-			 * provider adapters use them to carry application
-			 * state between tool rounds.
-			 */
 			'customer_id' =>
 				$verified_customer_id,
-
 			'context'     => array(
 				'customer_id' =>
 					$verified_customer_id,
-
 				'verified_ticket_keys' =>
 					isset(
 						$context['verified_ticket_keys']
@@ -688,6 +636,9 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	/**
 	 * Create a support ticket.
 	 *
+	 * PHP is the final authority. The AI cannot authorize
+	 * ticket creation merely by requesting the tool.
+	 *
 	 * @param array $arguments Tool arguments.
 	 * @param array $context   Tool context.
 	 * @return array|WP_Error
@@ -697,11 +648,29 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$context
 	) {
 
+		/*
+		 * ---------------------------------------------------------
+		 * SECURITY GATE
+		 * ---------------------------------------------------------
+		 *
+		 * Requires:
+		 *
+		 * 1. Identified customer.
+		 * 2. Valid conversation.
+		 * 3. PHP-controlled explicit confirmation.
+		 * 4. A pending escalation request.
+		 *
+		 * This prevents Gemini from creating a ticket by itself.
+		 */
 		if (
 			! WP_RapidRescue_Chat_Tool_Security::can_create_ticket(
 				$context
 			)
 		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'create_ticket blocked by PHP security gate'
+			);
 
 			return array(
 				'success'     => false,
@@ -722,38 +691,86 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$context
 			);
 
+		if (
+			$conversation_id < 1 ||
+			$customer_id < 1
+		) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'invalid_creation_context',
+				'next_action' => 'ask_customer_for_identity',
+			);
+		}
+
+		/*
+		 * A ticket may only be created from a stored pending
+		 * escalation request.
+		 */
+		$pending =
+			WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
+				$conversation_id
+			);
+
+		if (
+			! is_array( $pending ) ||
+			empty( $pending )
+		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'create_ticket blocked: no pending escalation'
+			);
+
+			return array(
+				'success'     => false,
+				'state'       => 'no_pending_escalation',
+				'next_action' => 'offer_sensitive_ticket',
+			);
+		}
+
+		/*
+		 * The stored pending escalation is authoritative.
+		 *
+		 * Do not allow the AI to replace the customer-approved
+		 * issue with arbitrary tool arguments.
+		 */
 		$subject =
-			isset( $arguments['subject'] )
+			isset( $pending['subject'] )
 				? sanitize_text_field(
-					$arguments['subject']
+					$pending['subject']
 				)
 				: '';
 
 		$summary =
-			isset( $arguments['summary'] )
+			isset( $pending['summary'] )
 				? sanitize_textarea_field(
-					$arguments['summary']
+					$pending['summary']
 				)
 				: '';
 
 		$priority =
-			isset( $arguments['priority'] )
+			isset( $pending['priority'] )
 				? sanitize_key(
-					$arguments['priority']
+					$pending['priority']
 				)
 				: 'normal';
 
 		if ( '' === $subject ) {
-			$subject = 'Customer Support Request';
+			$subject =
+				isset( $arguments['subject'] )
+					? sanitize_text_field(
+						$arguments['subject']
+					)
+					: 'Customer Support Request';
 		}
 
 		if ( '' === trim( $summary ) ) {
-
-			return array(
-				'success'     => false,
-				'state'       => 'invalid_request',
-				'next_action' => 'provide_ticket_summary',
-			);
+			$summary =
+				isset( $arguments['summary'] )
+					? sanitize_textarea_field(
+						$arguments['summary']
+					)
+					: '';
 		}
 
 		if (
@@ -768,9 +785,78 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				true
 			)
 		) {
+
 			$priority = 'normal';
 		}
 
+		if ( '' === trim( $summary ) ) {
+
+			return array(
+				'success'     => false,
+				'state'       => 'invalid_request',
+				'next_action' => 'provide_ticket_summary',
+			);
+		}
+
+		/*
+		 * Prevent duplicate active tickets for the same
+		 * conversation/customer.
+		 */
+		$active_ticket_key =
+			WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+				$conversation_id
+			);
+
+		if ( '' !== $active_ticket_key ) {
+
+			$active_ticket =
+				WP_RapidRescue_Chat_Ticket::get_by_key(
+					$active_ticket_key
+				);
+
+			if (
+				$active_ticket &&
+				in_array(
+					$active_ticket->status,
+					array(
+						'open',
+						'in_progress',
+						'waiting_customer',
+					),
+					true
+				)
+			) {
+
+				WP_RapidRescue_Chat_Debug::tool(
+					'create_ticket blocked: active ticket already exists',
+					array(
+						'ticket_key' =>
+							$active_ticket_key,
+					)
+				);
+
+				return array(
+					'success'       => true,
+					'state'         => 'already_exists',
+					'next_action'   =>
+						'tell_customer_existing_ticket',
+					'ticket_id'     =>
+						absint(
+							$active_ticket->id
+						),
+					'ticket_key'    =>
+						sanitize_text_field(
+							$active_ticket->ticket_key
+						),
+					'already_exists' => true,
+					'created'       => false,
+				);
+			}
+		}
+
+		/*
+		 * Only now is the actual database creation performed.
+		 */
 		$result =
 			WP_RapidRescue_Chat_Ticket::create_from_conversation(
 				$conversation_id,
@@ -783,6 +869,14 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 		if ( is_wp_error( $result ) ) {
 
+			WP_RapidRescue_Chat_Debug::tool(
+				'create_ticket database creation failed',
+				array(
+					'error_code' =>
+						$result->get_error_code(),
+				)
+			);
+
 			return array(
 				'success'     => false,
 				'state'       => 'creation_failed',
@@ -793,7 +887,14 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		if ( empty( $result['ticket_key'] ) ) {
+		if (
+			empty( $result['ticket_key'] ) ||
+			empty( $result['ticket_id'] )
+		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'create_ticket returned incomplete creation result'
+			);
 
 			return array(
 				'success'     => false,
@@ -802,6 +903,43 @@ class WP_RapidRescue_Chat_Tool_Manager {
 					'tell_customer_creation_failed',
 			);
 		}
+
+		$ticket_id =
+			absint(
+				$result['ticket_id']
+			);
+
+		$ticket_key =
+			sanitize_text_field(
+				$result['ticket_key']
+			);
+
+		/*
+		 * Creation is now confirmed by the database result.
+		 *
+		 * Clear pending escalation and store the newly-created
+		 * ticket as the active ticket for this conversation.
+		 */
+		WP_RapidRescue_Chat_Conversation::clear_pending_sensitive_escalation(
+			$conversation_id
+		);
+
+		WP_RapidRescue_Chat_Conversation::set_active_ticket(
+			$conversation_id,
+			$ticket_key,
+			$customer_id
+		);
+
+		WP_RapidRescue_Chat_Debug::tool(
+			'create_ticket succeeded',
+			array(
+				'ticket_id' =>
+					$ticket_id,
+
+				'ticket_key' =>
+					$ticket_key,
+			)
+		);
 
 		return array(
 			'success' =>
@@ -814,24 +952,16 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				'tell_customer_ticket_created',
 
 			'ticket_id' =>
-				absint(
-					$result['ticket_id']
-				),
+				$ticket_id,
 
 			'ticket_key' =>
-				sanitize_text_field(
-					$result['ticket_key']
-				),
+				$ticket_key,
 
 			'created' =>
-				! empty(
-					$result['created']
-				),
+				true,
 
 			'already_exists' =>
-				! empty(
-					$result['already_exists']
-				),
+				false,
 		);
 	}
 }
