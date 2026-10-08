@@ -157,7 +157,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			'create_ticket' => array(
 				'name'        => 'create_ticket',
 				'description' =>
-					'Create a new human-support ticket. PHP controls authorization, pending escalation state, duplicate prevention, and ticket number generation. Never invent a ticket number.',
+					'Create a NEW human-support ticket. Multiple open tickets are allowed when the customer explicitly requests a new or separate ticket. PHP controls authorization, pending escalation state, and ticket number generation. An existing active ticket does not block creation of a separately requested new ticket. Never invent a ticket number.',
 				'parameters'  => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -972,8 +972,11 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	 * PHP is the final authority. The AI cannot authorize
 	 * ticket creation merely by requesting the tool.
 	 *
+	 * An explicitly confirmed NEW ticket is allowed even when
+	 * another active ticket already exists for the customer.
+	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Tool context.
+	 * @param array $context   Execution context.
 	 * @return array|WP_Error
 	 */
 	private static function create_ticket(
@@ -1132,60 +1135,20 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		}
 
 		/*
-		 * Prevent duplicate active tickets for the same
-		 * conversation/customer.
+		 * IMPORTANT:
+		 *
+		 * Do NOT block creation merely because the conversation
+		 * already has an active ticket.
+		 *
+		 * The customer explicitly requested a NEW ticket and PHP
+		 * already confirmed the creation workflow. Multiple active
+		 * tickets are therefore permitted.
+		 *
+		 * The existing ticket remains untouched.
+		 *
+		 * The newly-created ticket becomes the active ticket only
+		 * after successful database creation below.
 		 */
-		$active_ticket_key =
-			WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
-				$conversation_id
-			);
-
-		if ( '' !== $active_ticket_key ) {
-
-			$active_ticket =
-				WP_RapidRescue_Chat_Ticket::get_by_key(
-					$active_ticket_key
-				);
-
-			if (
-				$active_ticket &&
-				in_array(
-					$active_ticket->status,
-					array(
-						'open',
-						'in_progress',
-						'waiting_customer',
-					),
-					true
-				)
-			) {
-
-				WP_RapidRescue_Chat_Debug::tool(
-					'create_ticket blocked: active ticket already exists',
-					array(
-						'ticket_key' =>
-							$active_ticket_key,
-					)
-				);
-
-				return array(
-					'success'       => true,
-					'state'         => 'already_exists',
-					'next_action'   =>
-						'tell_customer_existing_ticket',
-					'ticket_id'     =>
-						absint(
-							$active_ticket->id
-						),
-					'ticket_key'    =>
-						sanitize_text_field(
-							$active_ticket->ticket_key
-						),
-					'already_exists' => true,
-					'created'       => false,
-				);
-			}
-		}
 
 		/*
 		 * Only now is the actual database creation performed.
