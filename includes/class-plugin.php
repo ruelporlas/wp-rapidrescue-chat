@@ -108,65 +108,61 @@ class WP_RapidRescue_Chat_Plugin {
 	 *
 	 * @return void
 	 */
-	private function load_dependencies() {
+private function load_dependencies() {
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-settings.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-settings.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-knowledge.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-debug.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-conversation.php';
+	WP_RapidRescue_Chat_Debug::init();
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-customer.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-knowledge.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-ticket.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-conversation.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-escalation.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-customer.php';
 
-		/*
-		 * Provider-independent AI tools.
-		 *
-		 * Tool security is loaded before the tool manager because the
-		 * manager delegates protected operations to the security layer.
-		 */
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/tools/class-tool-security.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-ticket.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/tools/class-tool-manager.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-escalation.php';
 
-		/*
-		 * AI provider abstraction and provider adapters.
-		 */
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/ai/class-provider.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/tools/class-tool-security.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/ai/class-openai.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/tools/class-tool-manager.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/ai/class-gemini.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/ai/class-provider.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-ai.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/ai/class-openai.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'includes/class-rest-api.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/ai/class-gemini.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'public/class-chat-widget.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-ai.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'admin/class-conversations.php';
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'includes/class-rest-api.php';
 
-		require_once WP_RAPIDRESCUE_CHAT_PATH .
-			'admin/class-tickets.php';
-	}
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'public/class-chat-widget.php';
+
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'admin/class-conversations.php';
+
+	require_once WP_RAPIDRESCUE_CHAT_PATH .
+		'admin/class-tickets.php';
+}
 
 	/**
 	 * Register the main plugin admin menu.
