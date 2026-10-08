@@ -583,4 +583,4 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				$tool_calls,
 		);
 	}
-} 
+}  
