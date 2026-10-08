@@ -49,9 +49,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
 	let isOpen = false;
 
-	/*
-	 * The widget intentionally starts closed.
-	 */
 	widget.classList.remove(
 		'wp-rapidrescue-chat--open'
 	);
@@ -128,10 +125,6 @@ document.addEventListener('DOMContentLoaded', function () {
 			'Open chat'
 		);
 
-		/*
-		 * Remove focus from the textarea before closing so mobile
-		 * browsers can dismiss the virtual keyboard.
-		 */
 		if (document.activeElement === input) {
 			input.blur();
 		}
@@ -522,10 +515,13 @@ document.addEventListener('DOMContentLoaded', function () {
 			'wp-rapidrescue-chat__message--loading';
 
 		messageElement.innerHTML =
-			'<span class="wp-rapidrescue-chat__typing" aria-label="Assistant is typing">' +
-				'<span></span>' +
-				'<span></span>' +
-				'<span></span>' +
+			'<span class="wp-rapidrescue-chat__thinking" aria-live="polite">' +
+				'<span class="wp-rapidrescue-chat__thinking-label">Thinking</span>' +
+				'<span class="wp-rapidrescue-chat__typing" aria-hidden="true">' +
+					'<span></span>' +
+					'<span></span>' +
+					'<span></span>' +
+				'</span>' +
 			'</span>';
 
 		messages.appendChild(
