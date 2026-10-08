@@ -44,6 +44,14 @@ class WP_RapidRescue_Chat_Plugin {
 		WP_RapidRescue_Chat_Customer::create_table();
 		WP_RapidRescue_Chat_Ticket::create_table();
 
+		/*
+		 * Initialize the provider-independent AI tool system.
+		 *
+		 * Tools are the application/security boundary between the AI
+		 * provider and WordPress business data.
+		 */
+		WP_RapidRescue_Chat_Tool_Manager::init();
+
 		add_action(
 			'init',
 			array(
@@ -120,6 +128,21 @@ class WP_RapidRescue_Chat_Plugin {
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/class-escalation.php';
 
+		/*
+		 * Provider-independent AI tools.
+		 *
+		 * Tool security is loaded before the tool manager because the
+		 * manager delegates protected operations to the security layer.
+		 */
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/tools/class-tool-security.php';
+
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/tools/class-tool-manager.php';
+
+		/*
+		 * AI provider abstraction and provider adapters.
+		 */
 		require_once WP_RAPIDRESCUE_CHAT_PATH .
 			'includes/ai/class-provider.php';
 
