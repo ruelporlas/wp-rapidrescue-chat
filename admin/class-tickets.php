@@ -20,7 +20,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 	 * @return void
 	 */
 	public static function register_menu() {
-		// Menu registration is handled by the main plugin controller.
+		// Menu registration is handled by WP_RapidRescue_Chat_Plugin.
 	}
 
 	/**
@@ -35,6 +35,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 		}
 
 		self::handle_update();
+		self::handle_delete();
 
 		$ticket_id = isset( $_GET['ticket_id'] )
 			? absint( $_GET['ticket_id'] )
@@ -46,6 +47,136 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 		}
 
 		self::render_list();
+	}
+
+	/**
+	 * Handle ticket deletion.
+	 *
+	 * @return void
+	 */
+	private static function handle_delete() {
+
+		if ( 'POST' !== strtoupper( $_SERVER['REQUEST_METHOD'] ) ) {
+			return;
+		}
+
+		if (
+			empty( $_POST['wp_rapidrescue_ticket_action'] ) ||
+			'delete_ticket' !==
+				sanitize_key(
+					wp_unslash(
+						$_POST['wp_rapidrescue_ticket_action']
+					)
+				)
+		) {
+			return;
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die(
+				esc_html__(
+					'You do not have permission to delete tickets.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		check_admin_referer(
+			'wp_rapidrescue_delete_ticket',
+			'wp_rapidrescue_ticket_delete_nonce'
+		);
+
+		$ticket_id = isset( $_POST['ticket_id'] )
+			? absint( $_POST['ticket_id'] )
+			: 0;
+
+		if ( $ticket_id < 1 ) {
+			self::add_admin_notice(
+				'error',
+				'Invalid ticket.'
+			);
+
+			return;
+		}
+
+		$ticket =
+			WP_RapidRescue_Chat_Ticket::get_by_id(
+				$ticket_id
+			);
+
+		if ( ! $ticket ) {
+			self::add_admin_notice(
+				'error',
+				'The requested ticket could not be found.'
+			);
+
+			return;
+		}
+
+		global $wpdb;
+
+		/*
+		 * If this ticket is currently marked as the active ticket
+		 * for its conversation, clear that state before deletion.
+		 */
+		if ( ! empty( $ticket->conversation_id ) ) {
+
+			$active_ticket_key =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+					absint(
+						$ticket->conversation_id
+					)
+				);
+
+			if (
+				'' !== $active_ticket_key &&
+				0 === strcasecmp(
+					$active_ticket_key,
+					$ticket->ticket_key
+				)
+			) {
+				WP_RapidRescue_Chat_Conversation::clear_active_ticket(
+					absint(
+						$ticket->conversation_id
+					)
+				);
+			}
+		}
+
+		$table = $wpdb->prefix . 'rr_tickets';
+
+		$deleted = $wpdb->delete(
+			$table,
+			array(
+				'id' => $ticket_id,
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $deleted ) {
+			self::add_admin_notice(
+				'error',
+				'The ticket could not be deleted.'
+			);
+
+			return;
+		}
+
+		$redirect_url = add_query_arg(
+			array(
+				'page'    => 'wp-rapidrescue-tickets',
+				'deleted' => '1',
+			),
+			admin_url( 'admin.php' )
+		);
+
+		wp_safe_redirect(
+			$redirect_url
+		);
+
+		exit;
 	}
 
 	/**
@@ -313,6 +444,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 						<th>Priority</th>
 						<th>Created</th>
 						<th>Updated</th>
+						<th style="width:80px;">Actions</th>
 					</tr>
 				</thead>
 
@@ -321,7 +453,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					<?php if ( empty( $tickets ) ) : ?>
 
 						<tr>
-							<td colspan="8">
+							<td colspan="9">
 								No tickets found.
 							</td>
 						</tr>
@@ -424,6 +556,43 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 									<?php echo esc_html( $ticket->updated_at ); ?>
 								</td>
 
+								<td>
+									<form
+										method="post"
+										onsubmit="return confirm('Delete this ticket? This cannot be undone.');"
+									>
+
+										<input
+											type="hidden"
+											name="wp_rapidrescue_ticket_action"
+											value="delete_ticket"
+										>
+
+										<input
+											type="hidden"
+											name="ticket_id"
+											value="<?php echo esc_attr(
+												$ticket->id
+											); ?>"
+										>
+
+										<?php
+										wp_nonce_field(
+											'wp_rapidrescue_delete_ticket',
+											'wp_rapidrescue_ticket_delete_nonce'
+										);
+										?>
+
+										<button
+											type="submit"
+											class="button button-link-delete"
+										>
+											Delete
+										</button>
+
+									</form>
+								</td>
+
 							</tr>
 
 						<?php endforeach; ?>
@@ -519,6 +688,51 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					&larr; Back to Tickets
 				</a>
 			</p>
+
+			<div
+				style="
+					display:flex;
+					gap:10px;
+					margin:15px 0 25px;
+				"
+			>
+
+				<form
+					method="post"
+					onsubmit="return confirm('Delete this ticket? This cannot be undone.');"
+				>
+
+					<input
+						type="hidden"
+						name="wp_rapidrescue_ticket_action"
+						value="delete_ticket"
+					>
+
+					<input
+						type="hidden"
+						name="ticket_id"
+						value="<?php echo esc_attr(
+							$ticket->id
+						); ?>"
+					>
+
+					<?php
+					wp_nonce_field(
+						'wp_rapidrescue_delete_ticket',
+						'wp_rapidrescue_ticket_delete_nonce'
+					);
+					?>
+
+					<button
+						type="submit"
+						class="button button-link-delete"
+					>
+						Delete Ticket
+					</button>
+
+				</form>
+
+			</div>
 
 			<div
 				style="
@@ -1056,7 +1270,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 	}
 
 	/**
-	 * Render request/update notices.
+	 * Render request/update/delete notices.
 	 *
 	 * @return void
 	 */
@@ -1114,6 +1328,23 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 			</div>
 			<?php
 		}
+
+		if (
+			isset( $_GET['deleted'] ) &&
+			'1' ===
+				sanitize_text_field(
+					wp_unslash(
+						$_GET['deleted']
+					)
+				)
+		) {
+			?>
+			<div class="notice notice-success is-dismissible">
+				<p>
+					Ticket deleted successfully.
+				</p>
+			</div>
+			<?php
+		}
 	}
 }
-
