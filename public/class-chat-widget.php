@@ -85,9 +85,19 @@ class WP_RapidRescue_Chat_Chat_Widget {
 			'wp-rapidrescue-chat',
 			'wpRapidRescueChat',
 			array(
+				/*
+				 * IMPORTANT:
+				 *
+				 * The REST API registers:
+				 *
+				 * wp-rapidrescue/v1/chat
+				 *
+				 * Keep this namespace in sync with
+				 * WP_RapidRescue_Chat_REST_API::NAMESPACE.
+				 */
 				'restUrl' => esc_url_raw(
 					rest_url(
-						'rapidrescue/v1/chat'
+						'wp-rapidrescue/v1/chat'
 					)
 				),
 			)
