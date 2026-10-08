@@ -32,7 +32,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 	/**
 	 * Evaluate application state.
 	 *
-	 * @param array $context Runtime application context.
+	 * @param array $context Runtime context.
 	 * @return array
 	 */
 	public static function evaluate( $context = array() ) {
@@ -84,12 +84,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 				: '';
 
 		/*
-		 * ---------------------------------------------------------
-		 * 1. Detect a NEW ticket request.
-		 * ---------------------------------------------------------
-		 *
-		 * This is intentionally evaluated before the existing-ticket
-		 * workflow.
+		 * Detect explicit new-ticket requests.
 		 */
 		$new_ticket_request =
 			self::is_new_ticket_request(
@@ -102,11 +97,11 @@ class WP_RapidRescue_Chat_Control_Engine {
 			);
 
 		/*
-		 * A direct request starts a persistent escalation record.
+		 * Start or update pending escalation state.
 		 *
-		 * The request itself is authorization to create a ticket,
-		 * but the ticket cannot be created until meaningful details
-		 * are available.
+		 * An explicit new-ticket request authorizes the workflow,
+		 * but does NOT authorize database creation until meaningful
+		 * ticket details and customer identity are available.
 		 */
 		if (
 			$new_ticket_request ||
@@ -124,19 +119,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * ---------------------------------------------------------
-		 * 2. Continue an existing pending NEW ticket request.
-		 * ---------------------------------------------------------
-		 *
-		 * Example:
-		 *
-		 * Turn 1:
-		 * "please create a new ticket for me"
-		 *
-		 * Turn 2:
-		 * "I need help building a new page"
-		 *
-		 * The second message must NOT return to normal state.
+		 * Continue a pending ticket request.
 		 */
 		if ( ! empty( $pending ) ) {
 
@@ -149,18 +132,15 @@ class WP_RapidRescue_Chat_Control_Engine {
 					)
 					: '';
 
-			/*
-			 * If the current message is useful ticket information,
-			 * merge it into the pending request.
-			 *
-			 * Do not use messages such as "yes" or "create a ticket"
-			 * as the ticket summary.
-			 */
 			$current_detail =
 				self::extract_ticket_detail(
 					$current_message
 				);
 
+			/*
+			 * Only use the current message as ticket details when
+			 * it contains meaningful issue information.
+			 */
 			if (
 				'' === $summary &&
 				'' !== $current_detail
@@ -174,13 +154,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			/*
-			 * A customer explicitly requesting a new ticket has already
-			 * authorized creation. We only need:
-			 *
-			 * - customer identity
-			 * - meaningful ticket details
-			 *
-			 * before the database operation is allowed.
+			 * Customer identity is required before creation.
 			 */
 			if ( $customer_id < 1 ) {
 
@@ -220,10 +194,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			/*
-			 * No ticket summary/details yet.
-			 *
-			 * Do NOT create the ticket.
-			 * Do NOT ask for confirmation.
+			 * Do not create an empty ticket.
 			 */
 			if ( '' === trim( $summary ) ) {
 
@@ -263,10 +234,10 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			/*
-			 * Meaningful details + identified customer =
-			 * application-level authorization to create.
+			 * Customer identity + meaningful details =
+			 * PHP-authorized ticket creation.
 			 *
-			 * There is no confirmation step.
+			 * No second confirmation is required.
 			 */
 			$pending['confirmed'] = true;
 
@@ -306,9 +277,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * ---------------------------------------------------------
-		 * 3. Existing ticket update.
-		 * ---------------------------------------------------------
+		 * Existing verified ticket workflow.
 		 */
 		$verified_ticket =
 			self::get_verified_ticket(
@@ -420,9 +389,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * ---------------------------------------------------------
-		 * 4. Existing active ticket.
-		 * ---------------------------------------------------------
+		 * Existing active verified ticket.
 		 */
 		if ( '' !== $active_ticket_key ) {
 
@@ -460,9 +427,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * ---------------------------------------------------------
-		 * 5. Unverified ticket.
-		 * ---------------------------------------------------------
+		 * Unverified ticket requires verification.
 		 */
 		foreach ( $ticket_context as $ticket ) {
 
@@ -559,14 +524,14 @@ class WP_RapidRescue_Chat_Control_Engine {
 			$decision;
 
 		/*
-		 * This is the PHP authorization flag consumed by the
-		 * Tool Security layer.
+		 * This flag is generated entirely by PHP.
 		 *
-		 * It is only true when:
-		 *
+		 * It means:
 		 * - customer identity exists
 		 * - meaningful ticket details exist
-		 * - the control engine requires create_ticket
+		 * - new ticket creation is authorized
+		 *
+		 * It does NOT mean the customer typed "yes".
 		 */
 		$context['explicit_ticket_confirmation'] =
 			(
@@ -586,8 +551,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 			);
 
 		/*
-		 * Refresh pending state after evaluate() because evaluate()
-		 * may have persisted the customer's current ticket details.
+		 * Refresh persisted pending state.
 		 */
 		$conversation_id =
 			absint(
@@ -615,7 +579,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 	}
 
 	/**
-	 * Get the required tool.
+	 * Get required tool.
 	 *
 	 * @param array $context Runtime context.
 	 * @return string
@@ -681,13 +645,13 @@ class WP_RapidRescue_Chat_Control_Engine {
 	}
 
 	/**
-	 * Start or update a pending escalation.
+	 * Start or update pending escalation.
 	 *
 	 * @param int    $conversation_id Conversation ID.
 	 * @param array  $pending Existing pending state.
 	 * @param string $message Current message.
 	 * @param int    $customer_id Customer ID.
-	 * @param bool   $direct_new_ticket Direct new-ticket request.
+	 * @param bool   $direct_new_ticket Whether this was a direct ticket request.
 	 * @return array
 	 */
 	private static function start_or_update_pending(
@@ -761,10 +725,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Only save actual ticket information.
-		 *
-		 * "please create a new ticket for me"
-		 * is NOT ticket information.
+		 * Never store a workflow command as the ticket summary.
 		 */
 		if ( '' === trim( $summary ) ) {
 
@@ -779,11 +740,8 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * A direct request does not require a second confirmation.
-		 *
-		 * However, confirmed remains false until PHP has both:
-		 * - customer identity
-		 * - meaningful ticket details
+		 * Creation becomes confirmed only after both required
+		 * application conditions are satisfied.
 		 */
 		$confirmed =
 			(
@@ -886,7 +844,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 			);
 
 		/*
-		 * These are workflow commands, not ticket details.
+		 * Workflow commands are not ticket details.
 		 */
 		$command_messages = array(
 			'create a new ticket',
@@ -931,8 +889,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * If the message is primarily a ticket command with no
-		 * actual issue after it, do not treat it as a summary.
+		 * Reject a message that is only a ticket command.
 		 */
 		if (
 			preg_match(
@@ -944,11 +901,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Handle:
+		 * Extract details from:
 		 *
-		 * "create a new ticket for my homepage is broken"
-		 *
-		 * by removing the workflow command and retaining the issue.
+		 * "create a new ticket about my homepage being broken"
 		 */
 		$cleaned =
 			preg_replace(
@@ -971,11 +926,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * An unfinished sentence such as:
-		 *
-		 * "please create a new ticket for"
-		 *
-		 * is still only an intent.
+		 * Reject incomplete workflow commands.
 		 */
 		if (
 			preg_match(
@@ -987,7 +938,7 @@ class WP_RapidRescue_Chat_Control_Engine {
 		}
 
 		/*
-		 * Very short confirmations/commands are not issue details.
+		 * Very short commands/confirmations are not ticket details.
 		 */
 		if (
 			strlen( $cleaned ) < 8
@@ -1184,6 +1135,50 @@ class WP_RapidRescue_Chat_Control_Engine {
 			) {
 				return true;
 			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get a verified ticket from PHP-controlled ticket context.
+	 *
+	 * @param array $ticket_context Ticket context.
+	 * @return array|false
+	 */
+	private static function get_verified_ticket(
+		$ticket_context
+	) {
+
+		if ( ! is_array( $ticket_context ) ) {
+			return false;
+		}
+
+		foreach ( $ticket_context as $ticket ) {
+
+			if (
+				! is_array( $ticket )
+			) {
+				continue;
+			}
+
+			if (
+				empty(
+					$ticket['verified']
+				)
+			) {
+				continue;
+			}
+
+			if (
+				empty(
+					$ticket['ticket_key']
+				)
+			) {
+				continue;
+			}
+
+			return $ticket;
 		}
 
 		return false;
