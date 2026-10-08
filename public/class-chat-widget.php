@@ -203,4 +203,4 @@ class WP_RapidRescue_Chat_Chat_Widget {
 
 		<?php
 	}
-}
+} 

@@ -1,6 +1,6 @@
 <?php
 /**
- * Temporary diagnostic/debug tracing.
+ * Temporary debug logger.
  *
  * @package WP_RapidRescue_Chat
  */
@@ -10,17 +10,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Debug trace manager.
+ * Temporary debugging for the chat request flow.
  *
- * This class is intentionally isolated so debugging can be disabled
- * without removing the diagnostic code from the plugin.
+ * Set ENABLED to false when debugging is no longer needed.
  */
 class WP_RapidRescue_Chat_Debug {
 
 	/**
 	 * Master debug switch.
-	 *
-	 * Change to false when debugging is no longer required.
 	 *
 	 * @var bool
 	 */
@@ -34,52 +31,11 @@ class WP_RapidRescue_Chat_Debug {
 	private static $trace = array();
 
 	/**
-	 * Whether the trace has been initialized.
-	 *
-	 * @var bool
-	 */
-	private static $initialized = false;
-
-	/**
-	 * Initialize the trace.
-	 *
-	 * @return void
-	 */
-	public static function init() {
-
-		if ( self::$initialized ) {
-			return;
-		}
-
-		self::$initialized = true;
-		self::$trace       = array();
-
-		if ( ! self::enabled() ) {
-			return;
-		}
-
-		self::add(
-			'DEBUG',
-			'Debug trace initialized.'
-		);
-	}
-
-	/**
-	 * Determine whether debugging is enabled.
-	 *
-	 * @return bool
-	 */
-	public static function enabled() {
-
-		return self::ENABLED;
-	}
-
-	/**
 	 * Add a trace entry.
 	 *
 	 * @param string $stage   Trace stage.
 	 * @param string $message Trace message.
-	 * @param array  $data    Optional structured data.
+	 * @param array  $data    Optional data.
 	 * @return void
 	 */
 	public static function add(
@@ -88,208 +44,31 @@ class WP_RapidRescue_Chat_Debug {
 		$data = array()
 	) {
 
-		if ( ! self::enabled() ) {
+		if ( ! self::ENABLED ) {
 			return;
 		}
 
-		self::init();
-
 		$entry = array(
-			'time'    => current_time( 'H:i:s' ),
-			'stage'   => sanitize_text_field( $stage ),
+			'stage'   => strtoupper( sanitize_key( $stage ) ),
 			'message' => sanitize_text_field( $message ),
 		);
 
-		if ( ! empty( $data ) && is_array( $data ) ) {
-
-			$entry['data'] =
-				self::sanitize_data(
-					$data
-				);
+		if ( ! empty( $data ) ) {
+			$entry['data'] = self::sanitize_data( $data );
 		}
 
 		self::$trace[] = $entry;
+
+		/*
+		 * Prevent an accidental runaway trace.
+		 */
+		if ( count( self::$trace ) > 100 ) {
+			self::$trace = array_slice( self::$trace, -100 );
+		}
 	}
 
 	/**
-	 * Add a trace entry containing a tool result.
-	 *
-	 * Sensitive values are sanitized before display.
-	 *
-	 * @param string $tool_name Tool name.
-	 * @param array  $result    Tool result.
-	 * @return void
-	 */
-	public static function tool_result(
-		$tool_name,
-		$result
-	) {
-
-		if ( is_wp_error( $result ) ) {
-
-			self::add(
-				'TOOL',
-				$tool_name . ' returned WP_Error.',
-				array(
-					'error' =>
-						$result->get_error_message(),
-				)
-			);
-
-			return;
-		}
-
-		if ( ! is_array( $result ) ) {
-
-			self::add(
-				'TOOL',
-				$tool_name . ' returned a non-array result.'
-			);
-
-			return;
-		}
-
-		$data = array();
-
-		foreach (
-			array(
-				'success',
-				'state',
-				'next_action',
-				'found',
-				'customer_id',
-				'ticket_id',
-				'ticket_key',
-			) as $key
-		) {
-
-			if ( array_key_exists( $key, $result ) ) {
-
-				$data[ $key ] =
-					$result[ $key ];
-			}
-		}
-
-		if (
-			isset( $result['data']['ticket'] ) &&
-			is_array( $result['data']['ticket'] )
-		) {
-
-			$ticket =
-				$result['data']['ticket'];
-
-			/*
-			 * Only expose safe diagnostic fields.
-			 */
-			$data['ticket_returned'] =
-				true;
-
-			if (
-				isset( $ticket['ticket_key'] )
-			) {
-
-				$data['ticket_key'] =
-					sanitize_text_field(
-						$ticket['ticket_key']
-					);
-			}
-
-			if (
-				isset( $ticket['status'] )
-			) {
-
-				$data['ticket_status'] =
-					sanitize_key(
-						$ticket['status']
-					);
-			}
-		}
-
-		self::add(
-			'TOOL',
-			'Tool result received: ' . $tool_name,
-			$data
-		);
-	}
-
-	/**
-	 * Add a trace entry for tool arguments.
-	 *
-	 * @param string $tool_name Tool name.
-	 * @param array  $arguments Arguments.
-	 * @return void
-	 */
-	public static function tool_call(
-		$tool_name,
-		$arguments
-	) {
-
-		$safe = array();
-
-		if ( is_array( $arguments ) ) {
-
-			foreach (
-				$arguments as $key => $value
-			) {
-
-				$key =
-					sanitize_key(
-						$key
-					);
-
-				if (
-					'email' === $key ||
-					'customer_email' === $key
-				) {
-
-					$safe[ $key ] =
-						self::mask_email(
-							$value
-						);
-
-					continue;
-				}
-
-				if (
-					is_scalar( $value )
-				) {
-
-					$safe[ $key ] =
-						sanitize_text_field(
-							(string) $value
-						);
-				}
-			}
-		}
-
-		self::add(
-			'TOOL',
-			'Calling tool: ' . $tool_name,
-			$safe
-		);
-	}
-
-	/**
-	 * Add a provider trace.
-	 *
-	 * @param string $message Trace message.
-	 * @param array  $data    Optional data.
-	 * @return void
-	 */
-	public static function ai(
-		$message,
-		$data = array()
-	) {
-
-		self::add(
-			'AI',
-			$message,
-			$data
-		);
-	}
-
-	/**
-	 * Add a REST trace.
+	 * REST trace helper.
 	 *
 	 * @param string $message Trace message.
 	 * @param array  $data    Optional data.
@@ -299,7 +78,6 @@ class WP_RapidRescue_Chat_Debug {
 		$message,
 		$data = array()
 	) {
-
 		self::add(
 			'REST',
 			$message,
@@ -308,170 +86,244 @@ class WP_RapidRescue_Chat_Debug {
 	}
 
 	/**
-	 * Add a Gemini trace.
+	 * Ticket trace helper.
 	 *
 	 * @param string $message Trace message.
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function gemini(
+	public static function ticket(
 		$message,
 		$data = array()
 	) {
-
 		self::add(
-			'GEMINI',
+			'TICKET',
 			$message,
 			$data
 		);
 	}
 
 	/**
-	 * Get the current trace.
+	 * Tool trace helper.
+	 *
+	 * @param string $message Trace message.
+	 * @param array  $data    Optional data.
+	 * @return void
+	 */
+	public static function tool(
+		$message,
+		$data = array()
+	) {
+		self::add(
+			'TOOL',
+			$message,
+			$data
+		);
+	}
+
+	/**
+	 * AI trace helper.
+	 *
+	 * @param string $message Trace message.
+	 * @param array  $data    Optional data.
+	 * @return void
+	 */
+	public static function ai(
+		$message,
+		$data = array()
+	) {
+		self::add(
+			'AI',
+			$message,
+			$data
+		);
+	}
+
+	/**
+	 * Return whether debugging is enabled.
+	 *
+	 * @return bool
+	 */
+	public static function enabled() {
+		return self::ENABLED;
+	}
+
+	/**
+	 * Return the current trace.
 	 *
 	 * @return array
 	 */
 	public static function get_trace() {
-
-		if ( ! self::enabled() ) {
+		if ( ! self::ENABLED ) {
 			return array();
 		}
-
-		self::init();
 
 		return self::$trace;
 	}
 
 	/**
-	 * Sanitize structured diagnostic data.
+	 * Format the trace for display in the chat box.
+	 *
+	 * @return string
+	 */
+	public static function get_trace_text() {
+
+		if ( ! self::ENABLED || empty( self::$trace ) ) {
+			return '';
+		}
+
+		$lines = array();
+
+		$lines[] = 'DEBUG TRACE';
+		$lines[] = '────────────────────────────';
+
+		foreach ( self::$trace as $entry ) {
+
+			$stage =
+				isset( $entry['stage'] )
+					? $entry['stage']
+					: 'DEBUG';
+
+			$message =
+				isset( $entry['message'] )
+					? $entry['message']
+					: '';
+
+			$line =
+				'[' .
+				$stage .
+				'] ' .
+				$message;
+
+			if (
+				isset( $entry['data'] ) &&
+				is_array( $entry['data'] ) &&
+				! empty( $entry['data'] )
+			) {
+
+				foreach ( $entry['data'] as $key => $value ) {
+
+					if ( is_array( $value ) ) {
+						$value = wp_json_encode( $value );
+					} elseif ( is_bool( $value ) ) {
+						$value = $value ? 'true' : 'false';
+					} elseif ( null === $value ) {
+						$value = 'null';
+					} else {
+						$value = (string) $value;
+					}
+
+					$line .=
+						' | ' .
+						sanitize_key( $key ) .
+						': ' .
+						$value;
+				}
+			}
+
+			$lines[] = $line;
+		}
+
+		$lines[] = '────────────────────────────';
+
+		return implode(
+			"\n",
+			$lines
+		);
+	}
+
+	/**
+	 * Sanitize debug data.
 	 *
 	 * @param mixed $data Data.
 	 * @return mixed
 	 */
-	private static function sanitize_data(
-		$data
-	) {
+	private static function sanitize_data( $data ) {
 
 		if ( is_array( $data ) ) {
 
-			$safe = array();
+			$output = array();
 
-			foreach (
-				$data as $key => $value
-			) {
+			foreach ( $data as $key => $value ) {
 
-				$key =
+				$safe_key =
 					sanitize_key(
 						$key
 					);
 
-				if (
-					'email' === $key ||
-					'customer_email' === $key
-				) {
-
-					$safe[ $key ] =
-						self::mask_email(
-							$value
-						);
-
-					continue;
-				}
-
 				/*
-				 * Never expose credentials or authorization
-				 * headers in the browser.
+				 * Never expose secrets.
 				 */
 				if (
 					false !==
 					strpos(
-						$key,
+						$safe_key,
 						'key'
 					) ||
 					false !==
 					strpos(
-						$key,
+						$safe_key,
 						'secret'
 					) ||
 					false !==
 					strpos(
-						$key,
+						$safe_key,
 						'token'
 					) ||
 					false !==
 					strpos(
-						$key,
+						$safe_key,
 						'authorization'
 					)
 				) {
-
-					$safe[ $key ] = '[hidden]';
-
+					$output[ $safe_key ] = '[REDACTED]';
 					continue;
 				}
 
-				$safe[ $key ] =
+				$output[ $safe_key ] =
 					self::sanitize_data(
 						$value
 					);
 			}
 
-			return $safe;
+			return $output;
 		}
 
-		if ( is_scalar( $data ) ) {
-
-			return sanitize_text_field(
-				(string) $data
-			);
+		if ( is_object( $data ) ) {
+			return '[OBJECT]';
 		}
 
-		return '[data]';
-	}
+		if ( is_bool( $data ) || null === $data ) {
+			return $data;
+		}
 
-	/**
-	 * Mask an email address.
-	 *
-	 * @param string $email Email address.
-	 * @return string
-	 */
-	private static function mask_email(
-		$email
-	) {
+		$value = (string) $data;
 
-		$email =
-			sanitize_email(
-				(string) $email
+		/*
+		 * Mask email addresses.
+		 */
+		$value =
+			preg_replace_callback(
+				'/([a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]*@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/',
+				function ( $matches ) {
+					return $matches[1] . '***@' . $matches[2];
+				},
+				$value
 			);
 
-		if ( '' === $email ) {
-			return '[invalid email]';
+		/*
+		 * Avoid huge trace entries.
+		 */
+		if ( strlen( $value ) > 500 ) {
+			$value =
+				substr(
+					$value,
+					0,
+					500
+				) .
+				'...';
 		}
 
-		$parts =
-			explode(
-				'@',
-				$email,
-				2
-			);
-
-		if ( count( $parts ) !== 2 ) {
-			return '[email]';
-		}
-
-		$local =
-			$parts[0];
-
-		$domain =
-			$parts[1];
-
-		$first =
-			'' !== $local
-				? substr( $local, 0, 1 )
-				: '';
-
-		return $first .
-			'***@' .
-			$domain;
+		return sanitize_text_field( $value );
 	}
 }

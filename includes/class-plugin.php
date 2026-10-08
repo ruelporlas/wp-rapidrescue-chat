@@ -164,7 +164,7 @@ private function load_dependencies() {
 		'admin/class-tickets.php';
 }
 
-	/**
+	/** 
 	 * Register the main plugin admin menu.
 	 *
 	 * @return void

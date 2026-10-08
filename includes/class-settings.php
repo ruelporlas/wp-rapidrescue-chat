@@ -679,4 +679,4 @@ class WP_RapidRescue_Chat_Settings {
 			)
 		);
 	}
-}
+} 

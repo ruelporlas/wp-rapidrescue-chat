@@ -561,7 +561,7 @@ public static function set_pending_sensitive_escalation(
 		$conversation_id,
 		$summary_data
 	);
-}
+} 
 	/**
 	 * Get a pending sensitive escalation request.
 	 *

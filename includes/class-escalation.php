@@ -223,4 +223,4 @@ class WP_RapidRescue_Chat_Escalation {
 			$ticket_key
 		);
 	}
-}
+} 

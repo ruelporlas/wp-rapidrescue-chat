@@ -485,7 +485,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					Conversation #<?php echo esc_html(
 						$conversation->id
 					); ?>.
-				</p>
+				</p> 
 
 				<p>
 					<a
@@ -539,4 +539,4 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 				return 'Open';
 		}
 	}
-}
+}  

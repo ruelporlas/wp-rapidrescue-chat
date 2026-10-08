@@ -409,5 +409,5 @@ class WP_RapidRescue_Chat_Tool_Security {
 				$ticket->summary
 			),
 		);
-	}
+	} 
 }

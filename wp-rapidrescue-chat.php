@@ -25,11 +25,11 @@ define( 'WP_RAPIDRESCUE_CHAT_VERSION', '0.1.0' );
 define( 'WP_RAPIDRESCUE_CHAT_PATH', plugin_dir_path( __FILE__ ) );
 
 /**
- * Plugin directory URL.
+ * Plugin directory URL. 
  */
 define( 'WP_RAPIDRESCUE_CHAT_URL', plugin_dir_url( __FILE__ ) );
-
-/**
+ 
+/** 
  * Load the main plugin class.
  */
 require_once WP_RAPIDRESCUE_CHAT_PATH . 'includes/class-plugin.php';

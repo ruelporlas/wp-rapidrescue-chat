@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
 			'nonce',
 			wpRapidRescueChatSettings.nonce
 		);
-
+ 
 		fetch(
 			wpRapidRescueChatSettings.ajaxUrl,
 			{
@@ -224,4 +224,4 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		return div.innerHTML;
 	}
-});
+}); 

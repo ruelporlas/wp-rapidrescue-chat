@@ -45,11 +45,8 @@
 
 .wp-rapidrescue-chat__header {
 	flex: 0 0 auto;
-
 	padding: 15px 17px;
-
 	background: #161b22;
-
 	border-bottom: 1px solid #30363d;
 }
 
@@ -62,27 +59,20 @@
 .wp-rapidrescue-chat__brand-mark {
 	width: 32px;
 	height: 32px;
-
 	display: flex;
 	align-items: center;
 	justify-content: center;
-
 	background: #21262d;
-
 	border: 1px solid #30363d;
 	border-radius: 9px;
 }
 
 .wp-rapidrescue-chat__brand-mark span {
 	display: block;
-
 	width: 10px;
 	height: 10px;
-
 	background: #3fb950;
-
 	border-radius: 50%;
-
 	box-shadow: 0 0 10px rgba(63, 185, 80, 0.45);
 }
 
@@ -94,7 +84,6 @@
 
 .wp-rapidrescue-chat__title {
 	color: #f0f6fc;
-
 	font-size: 13px;
 	font-weight: 600;
 	letter-spacing: -0.02em;
@@ -104,9 +93,7 @@
 	display: flex;
 	align-items: center;
 	gap: 6px;
-
 	color: #8b949e;
-
 	font-size: 10px;
 	font-weight: 400;
 }
@@ -114,21 +101,16 @@
 .wp-rapidrescue-chat__status-dot {
 	width: 5px;
 	height: 5px;
-
 	background: #3fb950;
-
 	border-radius: 50%;
 }
 
 .wp-rapidrescue-chat__messages {
 	flex: 1 1 auto;
-
 	display: flex;
 	flex-direction: column;
 	gap: 13px;
-
 	padding: 20px 17px;
-
 	overflow-y: auto;
 	overflow-x: hidden;
 
@@ -149,7 +131,6 @@
 	border-radius: 10px;
 	word-wrap: break-word;
 	overflow-wrap: anywhere;
-	/*white-space: pre-wrap;*/
 	font-size: 12px;
 	line-height: 1.55;
 	animation: wp-rapidrescue-chat-message-in 0.18s ease-out;
@@ -170,20 +151,16 @@
 
 .wp-rapidrescue-chat__message--assistant {
 	align-self: flex-start;
-
 	background: #161b22;
 	color: #c9d1d9;
-
 	border: 1px solid #30363d;
 	border-bottom-left-radius: 3px;
 }
 
 .wp-rapidrescue-chat__message--user {
 	align-self: flex-end;
-
 	background: #1f6feb;
 	color: #ffffff;
-
 	border: 1px solid #388bfd;
 	border-bottom-right-radius: 3px;
 }
@@ -192,22 +169,55 @@
 	color: #8b949e;
 }
 
+/*
+ * Temporary AI/PHP debug trace.
+ */
+.wp-rapidrescue-chat__debug {
+	align-self: stretch;
+
+	width: 100%;
+	max-width: 100%;
+
+	margin: 0;
+	padding: 10px 11px;
+
+	background: #010409;
+	color: #8b949e;
+
+	border: 1px solid #30363d;
+	border-left: 3px solid #d29922;
+	border-radius: 6px;
+
+	font-family:
+		"JetBrains Mono",
+		"SFMono-Regular",
+		Consolas,
+		"Liberation Mono",
+		monospace;
+
+	font-size: 9px;
+	line-height: 1.55;
+
+	white-space: pre-wrap;
+	word-break: break-word;
+
+	overflow-x: auto;
+
+	animation: wp-rapidrescue-chat-message-in 0.18s ease-out;
+}
+
 .wp-rapidrescue-chat__typing {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-
 	height: 16px;
 }
 
 .wp-rapidrescue-chat__typing span {
 	width: 4px;
 	height: 4px;
-
 	background: #8b949e;
-
 	border-radius: 50%;
-
 	animation: wp-rapidrescue-chat-dot 1.2s infinite ease-in-out;
 }
 
@@ -236,11 +246,8 @@
 
 .wp-rapidrescue-chat__form {
 	flex: 0 0 auto;
-
 	padding: 11px 13px 12px;
-
 	background: #161b22;
-
 	border-top: 1px solid #30363d;
 }
 
@@ -252,28 +259,20 @@
 
 .wp-rapidrescue-chat__input {
 	flex: 1 1 auto;
-
 	width: 100%;
 	min-width: 0;
 	min-height: 42px;
 	max-height: 120px;
-
 	padding: 10px 11px;
-
 	margin: 0;
-
 	background: #0d1117;
 	color: #e6edf3;
-
 	border: 1px solid #30363d;
 	border-radius: 8px;
-
 	font-family: inherit;
 	font-size: 12px;
 	line-height: 1.5;
-
 	resize: none;
-
 	outline: none;
 
 	transition:
@@ -284,9 +283,7 @@
 
 .wp-rapidrescue-chat__input:focus {
 	background: #010409;
-
 	border-color: #388bfd;
-
 	box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.15);
 }
 
@@ -301,28 +298,21 @@
 
 .wp-rapidrescue-chat__send {
 	flex: 0 0 auto;
-
 	width: 74px;
 	height: 42px;
-
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	gap: 6px;
-
 	padding: 0 10px;
 	margin: 0;
-
 	background: #238636;
 	color: #ffffff;
-
 	border: 1px solid rgba(240, 246, 252, 0.1);
 	border-radius: 8px;
-
 	font-family: inherit;
 	font-size: 11px;
 	font-weight: 600;
-
 	cursor: pointer;
 
 	transition:
@@ -357,9 +347,7 @@
 
 .wp-rapidrescue-chat__hint {
 	padding: 7px 2px 0;
-
 	color: #6e7681;
-
 	font-size: 9px;
 	line-height: 1.4;
 	text-align: right;
@@ -382,7 +370,6 @@
 	background: #484f58;
 }
 
-/* Firefox. */
 .wp-rapidrescue-chat__messages {
 	scrollbar-width: thin;
 	scrollbar-color: #30363d transparent;
@@ -393,13 +380,10 @@
 	#wp-rapidrescue-chat {
 		right: 10px;
 		bottom: 10px;
-
 		width: calc(100vw - 20px);
 		max-width: none;
-
 		height: min(680px, calc(100vh - 20px));
 		max-height: calc(100vh - 20px);
-
 		border-radius: 13px;
 	}
 
@@ -422,6 +406,10 @@
 	.wp-rapidrescue-chat__send {
 		width: 68px;
 	}
+
+	.wp-rapidrescue-chat__debug {
+		font-size: 8px;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -431,9 +419,10 @@
 	}
 
 	.wp-rapidrescue-chat__message,
+	.wp-rapidrescue-chat__debug,
 	.wp-rapidrescue-chat__send,
 	.wp-rapidrescue-chat__input {
 		animation: none;
 		transition: none;
 	}
-}
+} 

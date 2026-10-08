@@ -200,7 +200,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$tool_name,
 		$arguments = array(),
 		$context = array()
-	) {
+	) { 
 
 		self::init();
 

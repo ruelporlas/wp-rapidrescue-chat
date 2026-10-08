@@ -460,4 +460,4 @@ class WP_RapidRescue_Chat_Customer {
 
 		return esc_url_raw( $url );
 	}
-}
+} 

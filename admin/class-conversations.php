@@ -394,4 +394,4 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 			LIMIT 100"
 		);
 	}
-}
+} 

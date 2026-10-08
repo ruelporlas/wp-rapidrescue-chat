@@ -77,5 +77,5 @@ abstract class WP_RapidRescue_Chat_AI_Provider {
 		}
 
 		return $response;
-	}
+	} 
 }

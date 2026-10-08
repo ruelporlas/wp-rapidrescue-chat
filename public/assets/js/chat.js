@@ -26,10 +26,6 @@ document.addEventListener('DOMContentLoaded', function () {
 		'.wp-rapidrescue-chat__send'
 	);
 
-	/*
-	 * Submit the message when Enter is pressed.
-	 * Shift + Enter creates a new line.
-	 */
 	input.addEventListener('keydown', function (event) {
 
 		if (
@@ -44,9 +40,6 @@ document.addEventListener('DOMContentLoaded', function () {
 		}
 	});
 
-	/*
-	 * Automatically grow the textarea while typing.
-	 */
 	input.addEventListener('input', function () {
 		autoResizeInput();
 	});
@@ -109,6 +102,22 @@ document.addEventListener('DOMContentLoaded', function () {
 						: 'I received your message, but no response was returned.';
 
 				addMessage(reply, 'assistant');
+
+				/*
+				 * Temporary debug display.
+				 *
+				 * This is returned separately by the REST API and is
+				 * never saved into the conversation transcript.
+				 */
+				if (
+					data.data &&
+					Array.isArray(data.data.debug_trace) &&
+					data.data.debug_trace.length
+				) {
+					addDebugTrace(
+						data.data.debug_trace
+					);
+				}
 			})
 			.catch(function (error) {
 
@@ -154,6 +163,93 @@ document.addEventListener('DOMContentLoaded', function () {
 		scrollToBottom();
 
 		return messageElement;
+	}
+
+	function addDebugTrace(trace) {
+
+		const debugElement =
+			document.createElement('pre');
+
+		debugElement.className =
+			'wp-rapidrescue-chat__debug';
+
+		const lines = [
+			'DEBUG TRACE',
+			'────────────────────────────'
+		];
+
+		trace.forEach(function (entry) {
+
+			if (!entry) {
+				return;
+			}
+
+			const stage =
+				entry.stage
+					? String(entry.stage).toUpperCase()
+					: 'DEBUG';
+
+			const message =
+				entry.message
+					? String(entry.message)
+					: '';
+
+			let line =
+				'[' +
+				stage +
+				'] ' +
+				message;
+
+			if (
+				entry.data &&
+				typeof entry.data === 'object'
+			) {
+
+				Object.keys(entry.data).forEach(
+					function (key) {
+
+						let value =
+							entry.data[key];
+
+						if (
+							value &&
+							typeof value === 'object'
+						) {
+							try {
+								value =
+									JSON.stringify(
+										value
+									);
+							} catch (error) {
+								value =
+									'[object]';
+							}
+						}
+
+						line +=
+							' | ' +
+							key +
+							': ' +
+							String(value);
+					}
+				);
+			}
+
+			lines.push(line);
+		});
+
+		lines.push(
+			'────────────────────────────'
+		);
+
+		debugElement.textContent =
+			lines.join('\n');
+
+		messages.appendChild(
+			debugElement
+		);
+
+		scrollToBottom();
 	}
 
 	function addLoadingMessage() {
