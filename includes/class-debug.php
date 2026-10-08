@@ -31,6 +31,17 @@ class WP_RapidRescue_Chat_Debug {
 	private static $trace = array();
 
 	/**
+	 * Initialize the debug logger.
+	 *
+	 * This method exists for compatibility with the plugin bootstrap.
+	 *
+	 * @return void
+	 */
+	public static function init() {
+		self::$trace = array();
+	}
+
+	/**
 	 * Add a trace entry.
 	 *
 	 * @param string $stage   Trace stage.
@@ -68,79 +79,51 @@ class WP_RapidRescue_Chat_Debug {
 	}
 
 	/**
-	 * REST trace helper.
+	 * Add REST trace entry.
 	 *
-	 * @param string $message Trace message.
+	 * @param string $message Message.
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function rest(
-		$message,
-		$data = array()
-	) {
-		self::add(
-			'REST',
-			$message,
-			$data
-		);
+	public static function rest( $message, $data = array() ) {
+		self::add( 'REST', $message, $data );
 	}
 
 	/**
-	 * Ticket trace helper.
+	 * Add ticket trace entry.
 	 *
-	 * @param string $message Trace message.
+	 * @param string $message Message.
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function ticket(
-		$message,
-		$data = array()
-	) {
-		self::add(
-			'TICKET',
-			$message,
-			$data
-		);
+	public static function ticket( $message, $data = array() ) {
+		self::add( 'TICKET', $message, $data );
 	}
 
 	/**
-	 * Tool trace helper.
+	 * Add tool trace entry.
 	 *
-	 * @param string $message Trace message.
+	 * @param string $message Message.
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function tool(
-		$message,
-		$data = array()
-	) {
-		self::add(
-			'TOOL',
-			$message,
-			$data
-		);
+	public static function tool( $message, $data = array() ) {
+		self::add( 'TOOL', $message, $data );
 	}
 
 	/**
-	 * AI trace helper.
+	 * Add AI trace entry.
 	 *
-	 * @param string $message Trace message.
+	 * @param string $message Message.
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function ai(
-		$message,
-		$data = array()
-	) {
-		self::add(
-			'AI',
-			$message,
-			$data
-		);
+	public static function ai( $message, $data = array() ) {
+		self::add( 'AI', $message, $data );
 	}
 
 	/**
-	 * Return whether debugging is enabled.
+	 * Check whether debugging is enabled.
 	 *
 	 * @return bool
 	 */
@@ -149,11 +132,12 @@ class WP_RapidRescue_Chat_Debug {
 	}
 
 	/**
-	 * Return the current trace.
+	 * Get the current request trace.
 	 *
 	 * @return array
 	 */
 	public static function get_trace() {
+
 		if ( ! self::ENABLED ) {
 			return array();
 		}
@@ -162,7 +146,7 @@ class WP_RapidRescue_Chat_Debug {
 	}
 
 	/**
-	 * Format the trace for display in the chat box.
+	 * Get the current request trace as readable text.
 	 *
 	 * @return string
 	 */
@@ -172,28 +156,16 @@ class WP_RapidRescue_Chat_Debug {
 			return '';
 		}
 
-		$lines = array();
-
+		$lines   = array();
 		$lines[] = 'DEBUG TRACE';
 		$lines[] = '────────────────────────────';
 
 		foreach ( self::$trace as $entry ) {
 
-			$stage =
-				isset( $entry['stage'] )
-					? $entry['stage']
-					: 'DEBUG';
+			$stage   = isset( $entry['stage'] ) ? $entry['stage'] : 'DEBUG';
+			$message = isset( $entry['message'] ) ? $entry['message'] : '';
 
-			$message =
-				isset( $entry['message'] )
-					? $entry['message']
-					: '';
-
-			$line =
-				'[' .
-				$stage .
-				'] ' .
-				$message;
+			$line = '[' . $stage . '] ' . $message;
 
 			if (
 				isset( $entry['data'] ) &&
@@ -213,11 +185,7 @@ class WP_RapidRescue_Chat_Debug {
 						$value = (string) $value;
 					}
 
-					$line .=
-						' | ' .
-						sanitize_key( $key ) .
-						': ' .
-						$value;
+					$line .= ' | ' . sanitize_key( $key ) . ': ' . $value;
 				}
 			}
 
@@ -226,16 +194,16 @@ class WP_RapidRescue_Chat_Debug {
 
 		$lines[] = '────────────────────────────';
 
-		return implode(
-			"\n",
-			$lines
-		);
+		return implode( "\n", $lines );
 	}
 
 	/**
 	 * Sanitize debug data.
 	 *
-	 * @param mixed $data Data.
+	 * Sensitive values such as API keys, tokens, secrets,
+	 * authorization headers and email addresses are masked.
+	 *
+	 * @param mixed $data Data to sanitize.
 	 * @return mixed
 	 */
 	private static function sanitize_data( $data ) {
@@ -246,44 +214,19 @@ class WP_RapidRescue_Chat_Debug {
 
 			foreach ( $data as $key => $value ) {
 
-				$safe_key =
-					sanitize_key(
-						$key
-					);
+				$safe_key = sanitize_key( $key );
 
-				/*
-				 * Never expose secrets.
-				 */
 				if (
-					false !==
-					strpos(
-						$safe_key,
-						'key'
-					) ||
-					false !==
-					strpos(
-						$safe_key,
-						'secret'
-					) ||
-					false !==
-					strpos(
-						$safe_key,
-						'token'
-					) ||
-					false !==
-					strpos(
-						$safe_key,
-						'authorization'
-					)
+					false !== strpos( $safe_key, 'key' ) ||
+					false !== strpos( $safe_key, 'secret' ) ||
+					false !== strpos( $safe_key, 'token' ) ||
+					false !== strpos( $safe_key, 'authorization' )
 				) {
 					$output[ $safe_key ] = '[REDACTED]';
 					continue;
 				}
 
-				$output[ $safe_key ] =
-					self::sanitize_data(
-						$value
-					);
+				$output[ $safe_key ] = self::sanitize_data( $value );
 			}
 
 			return $output;
@@ -299,31 +242,19 @@ class WP_RapidRescue_Chat_Debug {
 
 		$value = (string) $data;
 
-		/*
-		 * Mask email addresses.
-		 */
-		$value =
-			preg_replace_callback(
-				'/([a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]*@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/',
-				function ( $matches ) {
-					return $matches[1] . '***@' . $matches[2];
-				},
-				$value
-			);
+		$value = preg_replace_callback(
+			'/([a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]*@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/',
+			function ( $matches ) {
+				return $matches[1] . '***@' . $matches[2];
+			},
+			$value
+		);
 
-		/*
-		 * Avoid huge trace entries.
-		 */
 		if ( strlen( $value ) > 500 ) {
-			$value =
-				substr(
-					$value,
-					0,
-					500
-				) .
-				'...';
+			$value = substr( $value, 0, 500 ) . '...';
 		}
 
 		return sanitize_text_field( $value );
 	}
 }
+ 
