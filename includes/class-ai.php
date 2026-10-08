@@ -57,6 +57,15 @@ class WP_RapidRescue_Chat_AI {
 			$ticket_context;
 
 		/*
+		 * Give the Control Engine the current customer message.
+		 *
+		 * The engine uses this only to identify workflow intent.
+		 * It does not trust the AI to establish authorization.
+		 */
+		$tool_context['current_message'] =
+			$message;
+
+		/*
 		 * The Control Engine is deterministic PHP.
 		 * It is evaluated before the AI is called.
 		 */
@@ -174,18 +183,29 @@ class WP_RapidRescue_Chat_AI {
 			return $default;
 		}
 
-		$data = json_decode( $raw_text, true );
+		$data = json_decode(
+			$raw_text,
+			true
+		);
 
 		if ( ! is_array( $data ) ) {
 
-			$first = strpos( $raw_text, '{' );
-			$last  = strrpos( $raw_text, '}' );
+			$first = strpos(
+				$raw_text,
+				'{'
+			);
+
+			$last = strrpos(
+				$raw_text,
+				'}'
+			);
 
 			if (
 				false !== $first &&
 				false !== $last &&
 				$last > $first
 			) {
+
 				$data = json_decode(
 					substr(
 						$raw_text,
@@ -207,7 +227,8 @@ class WP_RapidRescue_Chat_AI {
 				? trim( $data['response'] )
 				: $raw_text;
 
-		$action = $default_action;
+		$action =
+			$default_action;
 
 		if (
 			isset( $data['action'] ) &&
@@ -215,7 +236,9 @@ class WP_RapidRescue_Chat_AI {
 		) {
 
 			$type =
-				isset( $data['action']['type'] )
+				isset(
+					$data['action']['type']
+				)
 					? sanitize_key(
 						$data['action']['type']
 					)
@@ -227,6 +250,7 @@ class WP_RapidRescue_Chat_AI {
 					array(
 						'none',
 						'create_ticket',
+						'update_ticket',
 						'existing_ticket',
 						'offer_sensitive_ticket',
 						'cancel_sensitive_ticket',
@@ -238,7 +262,9 @@ class WP_RapidRescue_Chat_AI {
 			}
 
 			$priority =
-				isset( $data['action']['priority'] )
+				isset(
+					$data['action']['priority']
+				)
 					? sanitize_key(
 						$data['action']['priority']
 					)
@@ -264,14 +290,18 @@ class WP_RapidRescue_Chat_AI {
 					$type,
 
 				'subject' =>
-					isset( $data['action']['subject'] )
+					isset(
+						$data['action']['subject']
+					)
 						? sanitize_text_field(
 							$data['action']['subject']
 						)
 						: '',
 
 				'summary' =>
-					isset( $data['action']['summary'] )
+					isset(
+						$data['action']['summary']
+					)
 						? sanitize_textarea_field(
 							$data['action']['summary']
 						)
@@ -281,7 +311,9 @@ class WP_RapidRescue_Chat_AI {
 					$priority,
 
 				'ticket_key' =>
-					isset( $data['action']['ticket_key'] )
+					isset(
+						$data['action']['ticket_key']
+					)
 						? strtoupper(
 							sanitize_text_field(
 								$data['action']['ticket_key']
@@ -290,7 +322,9 @@ class WP_RapidRescue_Chat_AI {
 						: '',
 
 				'reason' =>
-					isset( $data['action']['reason'] )
+					isset(
+						$data['action']['reason']
+					)
 						? sanitize_textarea_field(
 							$data['action']['reason']
 						)
@@ -301,15 +335,35 @@ class WP_RapidRescue_Chat_AI {
 		/*
 		 * PHP always owns ticket-number generation.
 		 */
-		if ( 'create_ticket' === $action['type'] ) {
+		if (
+			'create_ticket' ===
+			$action['type']
+		) {
 			$action['ticket_key'] = '';
 		}
 
 		if (
-			'existing_ticket' === $action['type'] &&
+			'existing_ticket' ===
+			$action['type'] &&
 			'' === $action['ticket_key']
 		) {
 			$action['type'] = 'none';
+		}
+
+		if (
+			'update_ticket' ===
+			$action['type'] &&
+			'' === $action['ticket_key']
+		) {
+
+			/*
+			 * The actual ticket is supplied by PHP context.
+			 * If the AI does not provide one, the tool can still
+			 * use the verified ticket context.
+			 *
+			 * We do not reject the action here because PHP remains
+			 * the authority over the actual ticket being updated.
+			 */
 		}
 
 		return array(
@@ -366,25 +420,43 @@ class WP_RapidRescue_Chat_AI {
 		$prompt[] = 'A deterministic PHP Control Engine has evaluated the current application state.';
 		$prompt[] = 'You must follow its state and next action.';
 		$prompt[] = 'You must not override the Control Engine.';
-		$prompt[] = 'CONTROL STATE: ' .
+
+		$prompt[] =
+			'CONTROL STATE: ' .
 			(
 				isset( $decision['state'] )
 					? $decision['state']
 					: 'normal'
 			);
-		$prompt[] = 'CONTROL NEXT ACTION: ' .
+
+		$prompt[] =
+			'CONTROL NEXT ACTION: ' .
 			(
 				isset( $decision['next_action'] )
 					? $decision['next_action']
 					: 'continue_conversation'
 			);
-		$prompt[] = 'CONTROL REQUIRED TOOL: ' .
+
+		$prompt[] =
+			'CONTROL REQUIRED TOOL: ' .
 			(
 				isset( $decision['required_tool'] ) &&
 				'' !== $decision['required_tool']
 					? $decision['required_tool']
 					: 'none'
 			);
+
+		$prompt[] = '';
+
+		$prompt[] = 'TICKET UPDATE RULES:';
+		$prompt[] = 'If the customer says an existing issue is unresolved, asks to follow up, asks to update an existing ticket, or provides additional information for an existing verified ticket, use update_ticket when the Control Engine requires it.';
+		$prompt[] = 'A ticket number alone does not authorize a ticket update.';
+		$prompt[] = 'A ticket must be verified by PHP before private ticket information or updates are permitted.';
+		$prompt[] = 'Use the customer message as the factual basis for the update.';
+		$prompt[] = 'Do not invent events, dates, promises, or resolutions.';
+		$prompt[] = 'If the customer says they need the issue fixed today, record that as the customer request for urgency. Do not promise that the business will fix it today unless the knowledge base or business process explicitly guarantees that.';
+		$prompt[] = 'After update_ticket succeeds, tell the customer that the follow-up was added to the ticket.';
+		$prompt[] = 'Never claim the ticket was updated unless update_ticket returns success.';
 		$prompt[] = '';
 
 		$prompt[] = 'ESCALATION RULES:';
@@ -426,7 +498,11 @@ class WP_RapidRescue_Chat_AI {
 					: 'false'
 			);
 
-		if ( ! empty( $tool_context['pending_escalation'] ) ) {
+		if (
+			! empty(
+				$tool_context['pending_escalation']
+			)
+		) {
 
 			$pending =
 				$tool_context['pending_escalation'];
@@ -468,11 +544,14 @@ class WP_RapidRescue_Chat_AI {
 
 		if ( empty( $ticket_context ) ) {
 
-			$prompt[] = 'No ticket context supplied by PHP.';
+			$prompt[] =
+				'No ticket context supplied by PHP.';
 
 		} else {
 
-			foreach ( $ticket_context as $ticket ) {
+			foreach (
+				$ticket_context as $ticket
+			) {
 
 				if ( ! is_array( $ticket ) ) {
 					continue;
@@ -481,7 +560,9 @@ class WP_RapidRescue_Chat_AI {
 				$prompt[] =
 					'TICKET REFERENCE: ' .
 					(
-						isset( $ticket['ticket_key'] )
+						isset(
+							$ticket['ticket_key']
+						)
 							? sanitize_text_field(
 								$ticket['ticket_key']
 							)
@@ -491,7 +572,9 @@ class WP_RapidRescue_Chat_AI {
 				$prompt[] =
 					'LOOKUP STATUS: ' .
 					(
-						isset( $ticket['lookup_status'] )
+						isset(
+							$ticket['lookup_status']
+						)
 							? sanitize_key(
 								$ticket['lookup_status']
 							)
@@ -503,21 +586,27 @@ class WP_RapidRescue_Chat_AI {
 						$ticket['requires_email']
 					)
 				) {
+
 					$prompt[] =
 						'Ask the customer for the email associated with the ticket.';
 				}
 
 				if (
-					isset( $ticket['lookup_status'] ) &&
+					isset(
+						$ticket['lookup_status']
+					) &&
 					'verified' ===
 						sanitize_key(
 							$ticket['lookup_status']
 						)
 				) {
+
 					$prompt[] =
 						'TICKET STATUS: ' .
 						(
-							isset( $ticket['status'] )
+							isset(
+								$ticket['status']
+							)
 								? sanitize_key(
 									$ticket['status']
 								)
@@ -527,7 +616,9 @@ class WP_RapidRescue_Chat_AI {
 					$prompt[] =
 						'TICKET SUBJECT: ' .
 						(
-							isset( $ticket['subject'] )
+							isset(
+								$ticket['subject']
+							)
 								? sanitize_text_field(
 									$ticket['subject']
 								)
@@ -535,9 +626,23 @@ class WP_RapidRescue_Chat_AI {
 						);
 
 					$prompt[] =
+						'TICKET PRIORITY: ' .
+						(
+							isset(
+								$ticket['priority']
+							)
+								? sanitize_key(
+									$ticket['priority']
+								)
+								: ''
+						);
+
+					$prompt[] =
 						'TICKET SUMMARY: ' .
 						(
-							isset( $ticket['summary'] )
+							isset(
+								$ticket['summary']
+							)
 								? sanitize_textarea_field(
 									$ticket['summary']
 								)
@@ -557,17 +662,27 @@ class WP_RapidRescue_Chat_AI {
 		$prompt[] = 'RECENT CONVERSATION:';
 
 		if ( empty( $history ) ) {
-			$prompt[] = 'No previous conversation.';
+
+			$prompt[] =
+				'No previous conversation.';
+
 		} else {
-			foreach ( $history as $item ) {
+
+			foreach (
+				$history as $item
+			) {
 
 				$role =
-					isset( $item->role )
+					isset(
+						$item->role
+					)
 						? $item->role
 						: '';
 
 				$content =
-					isset( $item->message )
+					isset(
+						$item->message
+					)
 						? $item->message
 						: '';
 
@@ -581,7 +696,9 @@ class WP_RapidRescue_Chat_AI {
 						);
 
 				$prompt[] =
-					$role . ': ' . $content;
+					$role .
+					': ' .
+					$content;
 			}
 		}
 
@@ -606,6 +723,14 @@ class WP_RapidRescue_Chat_AI {
 		$prompt[] = '}';
 		$prompt[] = '';
 
+		$prompt[] = 'ACTION TYPES:';
+		$prompt[] = 'none = normal conversation.';
+		$prompt[] = 'existing_ticket = customer is discussing an existing ticket.';
+		$prompt[] = 'update_ticket = customer wants an existing verified ticket updated.';
+		$prompt[] = 'offer_sensitive_ticket = customer needs a new human-support ticket and confirmation is still required.';
+		$prompt[] = 'create_ticket = PHP has authorized creation of a new ticket.';
+		$prompt[] = '';
+
 		$prompt[] = 'FINAL CONTROL RULE:';
 
 		if (
@@ -613,18 +738,33 @@ class WP_RapidRescue_Chat_AI {
 			'create_ticket' ===
 				$decision['required_tool']
 		) {
+
 			$prompt[] =
 				'The Control Engine requires create_ticket NOW. Call the create_ticket tool. Do not answer as though the ticket is being created without calling the tool.';
+
+		} elseif (
+			isset( $decision['required_tool'] ) &&
+			'update_ticket' ===
+				$decision['required_tool']
+		) {
+
+			$prompt[] =
+				'The Control Engine requires update_ticket NOW. Call the update_ticket tool. Do not merely say that the ticket was updated. The update must be performed by the tool before you confirm it to the customer.';
+
 		} elseif (
 			isset( $decision['state'] ) &&
 			'escalation_awaiting_confirmation' ===
 				$decision['state']
 		) {
+
 			$prompt[] =
 				'The customer must explicitly confirm ticket creation before create_ticket may be called.';
 		}
 
-		return implode( "\n", $prompt );
+		return implode(
+			"\n",
+			$prompt
+		);
 	}
 
 	/**
@@ -685,39 +825,57 @@ class WP_RapidRescue_Chat_AI {
 	 * @param string $provider_id Provider ID.
 	 * @return object|WP_Error
 	 */
-	public static function get_provider( $provider_id ) {
+	public static function get_provider(
+		$provider_id
+	) {
 
 		$provider_id =
-			sanitize_key( $provider_id );
+			sanitize_key(
+				$provider_id
+			);
 
 		if (
 			isset(
-				self::$providers[ $provider_id ]
+				self::$providers[
+					$provider_id
+				]
 			)
 		) {
-			return self::$providers[ $provider_id ];
+
+			return self::$providers[
+				$provider_id
+			];
 		}
 
-		switch ( $provider_id ) {
+		switch (
+			$provider_id
+		) {
 
 			case 'openai':
+
 				$provider =
 					new WP_RapidRescue_Chat_AI_OpenAI();
+
 				break;
 
 			case 'gemini':
+
 				$provider =
 					new WP_RapidRescue_Chat_AI_Gemini();
+
 				break;
 
 			default:
+
 				return new WP_Error(
 					'unsupported_ai_provider',
 					'The selected AI provider is not supported.'
 				);
 		}
 
-		self::$providers[ $provider_id ] =
+		self::$providers[
+			$provider_id
+		] =
 			$provider;
 
 		return $provider;
@@ -756,6 +914,7 @@ class WP_RapidRescue_Chat_AI {
 				'Escalation and ticket creation are separate steps.',
 				'A request for a human support representative does not itself authorize ticket creation.',
 				'Only call create_ticket when the PHP Control Engine authorizes the creation workflow.',
+				'Only call update_ticket when PHP has verified the customer and the Control Engine authorizes the ticket update workflow.',
 				'Never attempt to override the Control Engine.',
 			)
 		);
