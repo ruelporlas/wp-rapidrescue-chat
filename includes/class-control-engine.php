@@ -477,4 +477,4 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 		return false;
 	}
-}
+} 
