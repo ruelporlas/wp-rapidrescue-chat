@@ -95,12 +95,10 @@ class WP_RapidRescue_Chat_REST_API {
 				'Message rejected: empty'
 			);
 
-			return new WP_Error(
+			return self::error_response(
 				'empty_message',
 				'Please enter a message.',
-				array(
-					'status' => 400,
-				)
+				400
 			);
 		}
 
@@ -110,20 +108,25 @@ class WP_RapidRescue_Chat_REST_API {
 				'Message rejected: invalid session'
 			);
 
-			return new WP_Error(
+			return self::error_response(
 				'invalid_session',
 				'The chat session is invalid.',
-				array(
-					'status' => 400,
-				)
+				400
 			);
 		}
 
 		WP_RapidRescue_Chat_Debug::rest(
 			'Request validated',
 			array(
-				'session_id' => substr( $session_id, 0, 8 ) . '...',
-				'message_length' => strlen( $message ),
+				'session_id' =>
+					substr(
+						$session_id,
+						0,
+						8
+					) . '...',
+
+				'message_length' =>
+					strlen( $message ),
 			)
 		);
 
@@ -145,22 +148,33 @@ class WP_RapidRescue_Chat_REST_API {
 		if ( is_wp_error( $customer_id ) ) {
 
 			WP_RapidRescue_Chat_Debug::rest(
-				'Customer identity lookup failed'
+				'Customer identity lookup failed',
+				array(
+					'error_code' =>
+						$customer_id->get_error_code(),
+				)
 			);
 
-			return $customer_id;
+			return self::error_from_wp_error(
+				$customer_id
+			);
 		}
 
-		$customer_id = absint(
-			$customer_id
-		);
+		$customer_id =
+			absint(
+				$customer_id
+			);
 
 		WP_RapidRescue_Chat_Debug::rest(
 			'Customer identity processed',
 			array(
-				'customer_id' => $customer_id,
+				'customer_id' =>
+					$customer_id,
+
 				'identity_email_present' =>
-					! empty( $identity['email'] ),
+					! empty(
+						$identity['email']
+					),
 			)
 		);
 
@@ -178,10 +192,16 @@ class WP_RapidRescue_Chat_REST_API {
 		if ( is_wp_error( $conversation ) ) {
 
 			WP_RapidRescue_Chat_Debug::rest(
-				'Conversation creation failed'
+				'Conversation creation failed',
+				array(
+					'error_code' =>
+						$conversation->get_error_code(),
+				)
 			);
 
-			return $conversation;
+			return self::error_from_wp_error(
+				$conversation
+			);
 		}
 
 		$conversation_id =
@@ -204,7 +224,8 @@ class WP_RapidRescue_Chat_REST_API {
 			WP_RapidRescue_Chat_Debug::rest(
 				'Recovered customer from conversation',
 				array(
-					'customer_id' => $customer_id,
+					'customer_id' =>
+						$customer_id,
 				)
 			);
 		}
@@ -222,7 +243,18 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		if ( is_wp_error( $saved_message ) ) {
-			return $saved_message;
+
+			WP_RapidRescue_Chat_Debug::rest(
+				'Customer message could not be saved',
+				array(
+					'error_code' =>
+						$saved_message->get_error_code(),
+				)
+			);
+
+			return self::error_from_wp_error(
+				$saved_message
+			);
 		}
 
 		/*
@@ -247,6 +279,7 @@ class WP_RapidRescue_Chat_REST_API {
 					is_array( $history )
 						? count( $history )
 						: 0,
+
 				'pending_escalation' =>
 					(bool) $pending_escalation,
 			)
@@ -257,7 +290,8 @@ class WP_RapidRescue_Chat_REST_API {
 		 * 5. Pending escalation confirmation/cancellation.
 		 * -------------------------------------------------------------
 		 */
-		$explicit_ticket_confirmation = false;
+		$explicit_ticket_confirmation =
+			false;
 
 		if (
 			$pending_escalation &&
@@ -266,7 +300,8 @@ class WP_RapidRescue_Chat_REST_API {
 			)
 		) {
 
-			$explicit_ticket_confirmation = true;
+			$explicit_ticket_confirmation =
+				true;
 
 			WP_RapidRescue_Chat_Debug::ticket(
 				'Explicit ticket creation confirmation detected'
@@ -312,21 +347,23 @@ class WP_RapidRescue_Chat_REST_API {
 		 * 6. PHP-controlled tool context.
 		 * -------------------------------------------------------------
 		 */
-		$tool_context = array(
-			'conversation_id' =>
-				$conversation_id,
+		$tool_context =
+			array(
+				'conversation_id' =>
+					$conversation_id,
 
-			'customer_id' =>
-				$customer_id,
+				'customer_id' =>
+					$customer_id,
 
-			'explicit_ticket_confirmation' =>
-				$explicit_ticket_confirmation,
+				'explicit_ticket_confirmation' =>
+					$explicit_ticket_confirmation,
 
-			'verified_ticket_keys' =>
-				array(),
-		);
+				'verified_ticket_keys' =>
+					array(),
+			);
 
-		$ticket_context = array();
+		$ticket_context =
+			array();
 
 		/*
 		 * -------------------------------------------------------------
@@ -343,7 +380,8 @@ class WP_RapidRescue_Chat_REST_API {
 			WP_RapidRescue_Chat_Debug::ticket(
 				'Ticket detected',
 				array(
-					'ticket_key' => $explicit_ticket_key,
+					'ticket_key' =>
+						$explicit_ticket_key,
 				)
 			);
 		} else {
@@ -380,6 +418,7 @@ class WP_RapidRescue_Chat_REST_API {
 						! empty(
 							$ticket_resolution['verified']
 						),
+
 					'context_count' =>
 						count( $ticket_context ),
 				)
@@ -400,7 +439,10 @@ class WP_RapidRescue_Chat_REST_API {
 						)
 						: $customer_id;
 
-				if ( $verified_customer_id > 0 ) {
+				if (
+					$verified_customer_id > 0
+				) {
+
 					$customer_id =
 						$verified_customer_id;
 				}
@@ -420,13 +462,6 @@ class WP_RapidRescue_Chat_REST_API {
 		/*
 		 * -------------------------------------------------------------
 		 * 9. Email-only verification follow-up.
-		 *
-		 * IMPORTANT FIX:
-		 *
-		 * Do NOT require the previous assistant message to literally
-		 * contain "email address". If the conversation has a recent
-		 * ticket reference and the customer now sends an email,
-		 * attempt verification.
 		 * -------------------------------------------------------------
 		 */
 		if (
@@ -450,7 +485,8 @@ class WP_RapidRescue_Chat_REST_API {
 				WP_RapidRescue_Chat_Debug::ticket(
 					'Found ticket awaiting email verification',
 					array(
-						'ticket_key' => $pending_ticket_key,
+						'ticket_key' =>
+							$pending_ticket_key,
 					)
 				);
 
@@ -577,6 +613,7 @@ class WP_RapidRescue_Chat_REST_API {
 						array(
 							'ticket_key' =>
 								$active_ticket_key,
+
 							'status' =>
 								$active_ticket->status,
 						)
@@ -595,6 +632,7 @@ class WP_RapidRescue_Chat_REST_API {
 			array(
 				'ticket_context_count' =>
 					count( $ticket_context ),
+
 				'customer_id' =>
 					$customer_id,
 			)
@@ -615,10 +653,15 @@ class WP_RapidRescue_Chat_REST_API {
 				array(
 					'error_code' =>
 						$response->get_error_code(),
+
+					'error_message' =>
+						$response->get_error_message(),
 				)
 			);
 
-			return $response;
+			return self::error_from_wp_error(
+				$response
+			);
 		}
 
 		WP_RapidRescue_Chat_Debug::ai(
@@ -627,10 +670,13 @@ class WP_RapidRescue_Chat_REST_API {
 				'action_present' =>
 					isset( $response['action'] ) &&
 					is_array( $response['action'] ),
+
 				'tool_results_count' =>
 					isset( $response['tool_results'] ) &&
 					is_array( $response['tool_results'] )
-						? count( $response['tool_results'] )
+						? count(
+							$response['tool_results']
+						)
 						: 0,
 			)
 		);
@@ -677,7 +723,8 @@ class WP_RapidRescue_Chat_REST_API {
 		WP_RapidRescue_Chat_Debug::ai(
 			'AI action processed',
 			array(
-				'action_type' => $action_type,
+				'action_type' =>
+					$action_type,
 			)
 		);
 
@@ -751,7 +798,11 @@ class WP_RapidRescue_Chat_REST_API {
 				if ( is_wp_error( $pending_result ) ) {
 
 					WP_RapidRescue_Chat_Debug::ticket(
-						'Failed to store pending ticket offer'
+						'Failed to store pending ticket offer',
+						array(
+							'error_code' =>
+								$pending_result->get_error_code(),
+						)
 					);
 
 					$assistant_text =
@@ -801,13 +852,17 @@ class WP_RapidRescue_Chat_REST_API {
 				'' !== $ticket_key
 			) {
 
-				$escalated = true;
+				$escalated =
+					true;
 
 				WP_RapidRescue_Chat_Debug::ticket(
 					'Ticket creation confirmed by PHP',
 					array(
-						'ticket_id'  => $ticket_id,
-						'ticket_key' => $ticket_key,
+						'ticket_id' =>
+							$ticket_id,
+
+						'ticket_key' =>
+							$ticket_key,
 					)
 				);
 
@@ -840,10 +895,6 @@ class WP_RapidRescue_Chat_REST_API {
 			$assistant_text
 		);
 
-		/*
-		 * Debug is intentionally added ONLY to the REST response.
-		 * It is therefore NOT stored in the conversation transcript.
-		 */
 		return self::response(
 			$conversation_id,
 			$customer_id,
@@ -851,6 +902,76 @@ class WP_RapidRescue_Chat_REST_API {
 			$escalated,
 			$ticket_id,
 			$ticket_key
+		);
+	}
+
+	/**
+	 * Return a REST error while preserving the temporary debug trace.
+	 *
+	 * @param string $code HTTP/application error code.
+	 * @param string $message Error message.
+	 * @param int    $status HTTP status.
+	 * @return WP_Error
+	 */
+	private static function error_response(
+		$code,
+		$message,
+		$status = 500
+	) {
+
+		return new WP_Error(
+			$code,
+			$message,
+			array(
+				'status' =>
+					absint( $status ),
+
+				'debug_trace' =>
+					WP_RapidRescue_Chat_Debug::get_trace(),
+			)
+		);
+	}
+
+	/**
+	 * Convert an existing WP_Error to a REST error with debug trace.
+	 *
+	 * @param WP_Error $error Existing error.
+	 * @return WP_Error
+	 */
+	private static function error_from_wp_error(
+		$error
+	) {
+
+		$status =
+			500;
+
+		$data =
+			$error->get_error_data();
+
+		if (
+			is_array( $data ) &&
+			isset( $data['status'] )
+		) {
+
+			$status =
+				absint(
+					$data['status']
+				);
+		}
+
+		$new_data =
+			array(
+				'status' =>
+					$status,
+
+				'debug_trace' =>
+					WP_RapidRescue_Chat_Debug::get_trace(),
+			);
+
+		return new WP_Error(
+			$error->get_error_code(),
+			$error->get_error_message(),
+			$new_data
 		);
 	}
 
@@ -875,12 +996,20 @@ class WP_RapidRescue_Chat_REST_API {
 				)
 			);
 
-		$result = array(
-			'verified'             => false,
-			'verified_customer_id' => $customer_id,
-			'context'              => $context,
-			'ticket_context'       => array(),
-		);
+		$result =
+			array(
+				'verified' =>
+					false,
+
+				'verified_customer_id' =>
+					$customer_id,
+
+				'context' =>
+					$context,
+
+				'ticket_context' =>
+					array(),
+			);
 
 		if (
 			'' === $ticket_key ||
@@ -895,7 +1024,8 @@ class WP_RapidRescue_Chat_REST_API {
 		WP_RapidRescue_Chat_Debug::tool(
 			'Calling lookup_ticket',
 			array(
-				'ticket_key' => $ticket_key,
+				'ticket_key' =>
+					$ticket_key,
 			)
 		);
 
@@ -903,7 +1033,8 @@ class WP_RapidRescue_Chat_REST_API {
 			WP_RapidRescue_Chat_Tool_Manager::execute(
 				'lookup_ticket',
 				array(
-					'ticket_key' => $ticket_key,
+					'ticket_key' =>
+						$ticket_key,
 				),
 				$context
 			);
@@ -918,14 +1049,17 @@ class WP_RapidRescue_Chat_REST_API {
 				)
 			);
 
-			$result['ticket_context'][] = array(
-				'ticket_key' =>
-					$ticket_key,
-				'explicit_reference' =>
-					true,
-				'lookup_status' =>
-					'not_verified',
-			);
+			$result['ticket_context'][] =
+				array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'explicit_reference' =>
+						true,
+
+					'lookup_status' =>
+						'not_verified',
+				);
 
 			return $result;
 		}
@@ -934,19 +1068,30 @@ class WP_RapidRescue_Chat_REST_API {
 			'lookup_ticket returned',
 			array(
 				'success' =>
-					isset( $lookup['success'] )
+					isset(
+						$lookup['success']
+					)
 						? $lookup['success']
 						: false,
+
 				'state' =>
-					isset( $lookup['state'] )
+					isset(
+						$lookup['state']
+					)
 						? $lookup['state']
 						: '',
+
 				'next_action' =>
-					isset( $lookup['next_action'] )
+					isset(
+						$lookup['next_action']
+					)
 						? $lookup['next_action']
 						: '',
+
 				'found' =>
-					isset( $lookup['found'] )
+					isset(
+						$lookup['found']
+					)
 						? $lookup['found']
 						: false,
 			)
@@ -958,19 +1103,23 @@ class WP_RapidRescue_Chat_REST_API {
 			)
 		) {
 
-			$result['ticket_context'][] = array(
-				'ticket_key' =>
-					$ticket_key,
-				'explicit_reference' =>
-					true,
-				'lookup_status' =>
-					'not_verified',
-			);
+			$result['ticket_context'][] =
+				array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'explicit_reference' =>
+						true,
+
+					'lookup_status' =>
+						'not_verified',
+				);
 
 			return $result;
 		}
 
-		$email = '';
+		$email =
+			'';
 
 		if ( $customer_id > 0 ) {
 
@@ -999,16 +1148,20 @@ class WP_RapidRescue_Chat_REST_API {
 				'Ticket requires associated email'
 			);
 
-			$result['ticket_context'][] = array(
-				'ticket_key' =>
-					$ticket_key,
-				'explicit_reference' =>
-					true,
-				'lookup_status' =>
-					'email_required',
-				'requires_email' =>
-					true,
-			);
+			$result['ticket_context'][] =
+				array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'explicit_reference' =>
+						true,
+
+					'lookup_status' =>
+						'email_required',
+
+					'requires_email' =>
+						true,
+				);
 
 			return $result;
 		}
@@ -1061,18 +1214,29 @@ class WP_RapidRescue_Chat_REST_API {
 		$context
 	) {
 
-		$result = array(
-			'verified'             => false,
-			'verified_customer_id' => $customer_id,
-			'context'              => $context,
-			'ticket_context'       => array(),
-		);
+		$result =
+			array(
+				'verified' =>
+					false,
+
+				'verified_customer_id' =>
+					$customer_id,
+
+				'context' =>
+					$context,
+
+				'ticket_context' =>
+					array(),
+			);
 
 		WP_RapidRescue_Chat_Debug::tool(
 			'Calling verify_ticket',
 			array(
-				'ticket_key' => $ticket_key,
-				'email'      => $email,
+				'ticket_key' =>
+					$ticket_key,
+
+				'email' =>
+					$email,
 			)
 		);
 
@@ -1082,6 +1246,7 @@ class WP_RapidRescue_Chat_REST_API {
 				array(
 					'ticket_key' =>
 						$ticket_key,
+
 					'email' =>
 						$email,
 				),
@@ -1097,14 +1262,17 @@ class WP_RapidRescue_Chat_REST_API {
 				'verify_ticket returned invalid result'
 			);
 
-			$result['ticket_context'][] = array(
-				'ticket_key' =>
-					$ticket_key,
-				'explicit_reference' =>
-					true,
-				'lookup_status' =>
-					'not_verified',
-			);
+			$result['ticket_context'][] =
+				array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'explicit_reference' =>
+						true,
+
+					'lookup_status' =>
+						'not_verified',
+				);
 
 			return $result;
 		}
@@ -1125,10 +1293,14 @@ class WP_RapidRescue_Chat_REST_API {
 					! empty(
 						$verify['success']
 					),
+
 				'state' =>
 					$state,
+
 				'next_action' =>
-					isset( $verify['next_action'] )
+					isset(
+						$verify['next_action']
+					)
 						? $verify['next_action']
 						: '',
 			)
@@ -1185,14 +1357,17 @@ class WP_RapidRescue_Chat_REST_API {
 					'Verification said verified but no ticket data was returned'
 				);
 
-				$result['ticket_context'][] = array(
-					'ticket_key' =>
-						$ticket_key,
-					'explicit_reference' =>
-						true,
-					'lookup_status' =>
-						'not_verified',
-				);
+				$result['ticket_context'][] =
+					array(
+						'ticket_key' =>
+							$ticket_key,
+
+						'explicit_reference' =>
+							true,
+
+						'lookup_status' =>
+							'not_verified',
+					);
 
 				return $result;
 			}
@@ -1206,51 +1381,56 @@ class WP_RapidRescue_Chat_REST_API {
 			$result['context'] =
 				$context;
 
-			$result['ticket_context'][] = array(
-				'ticket_key' =>
-					$ticket_key,
+			$result['ticket_context'][] =
+				array(
+					'ticket_key' =>
+						$ticket_key,
 
-				'subject' =>
-					isset(
-						$ticket['subject']
-					)
-						? $ticket['subject']
-						: '',
+					'subject' =>
+						isset(
+							$ticket['subject']
+						)
+							? $ticket['subject']
+							: '',
 
-				'status' =>
-					isset(
-						$ticket['status']
-					)
-						? $ticket['status']
-						: '',
+					'status' =>
+						isset(
+							$ticket['status']
+						)
+							? $ticket['status']
+							: '',
 
-				'priority' =>
-					isset(
-						$ticket['priority']
-					)
-						? $ticket['priority']
-						: '',
+					'priority' =>
+						isset(
+							$ticket['priority']
+						)
+							? $ticket['priority']
+							: '',
 
-				'summary' =>
-					isset(
-						$ticket['summary']
-					)
-						? $ticket['summary']
-						: '',
+					'summary' =>
+						isset(
+							$ticket['summary']
+						)
+							? $ticket['summary']
+							: '',
 
-				'explicit_reference' =>
-					true,
+					'explicit_reference' =>
+						true,
 
-				'lookup_status' =>
-					'verified',
-			);
+					'lookup_status' =>
+						'verified',
+				);
 
 			WP_RapidRescue_Chat_Debug::ticket(
 				'Ticket successfully verified',
 				array(
-					'ticket_key' => $ticket_key,
+					'ticket_key' =>
+						$ticket_key,
+
 					'status' =>
-						isset( $ticket['status'] )
+						isset(
+							$ticket['status']
+						)
 							? $ticket['status']
 							: '',
 				)
@@ -1263,30 +1443,26 @@ class WP_RapidRescue_Chat_REST_API {
 			'Ticket verification failed'
 		);
 
-		$result['ticket_context'][] = array(
-			'ticket_key' =>
-				$ticket_key,
+		$result['ticket_context'][] =
+			array(
+				'ticket_key' =>
+					$ticket_key,
 
-			'explicit_reference' =>
-				true,
+				'explicit_reference' =>
+					true,
 
-			'lookup_status' =>
-				'not_verified',
+				'lookup_status' =>
+					'not_verified',
 
-			'verification_failed' =>
-				true,
-		);
+				'verification_failed' =>
+					true,
+			);
 
 		return $result;
 	}
 
 	/**
 	 * Find a ticket awaiting email verification.
-	 *
-	 * The previous implementation required a literal phrase in the
-	 * previous assistant message. That was too fragile.
-	 *
-	 * We now use the most recent ticket reference in the conversation.
 	 *
 	 * @param array $history Conversation history.
 	 * @return string
@@ -1309,7 +1485,8 @@ class WP_RapidRescue_Chat_REST_API {
 				$history
 			);
 
-		$latest_ticket_key = '';
+		$latest_ticket_key =
+			'';
 
 		foreach (
 			$history as $item
@@ -1354,18 +1531,11 @@ class WP_RapidRescue_Chat_REST_API {
 		WP_RapidRescue_Chat_Debug::ticket(
 			'Latest ticket reference recovered from history',
 			array(
-				'ticket_key' => $latest_ticket_key,
+				'ticket_key' =>
+					$latest_ticket_key,
 			)
 		);
 
-		/*
-		 * We intentionally no longer require the assistant to have
-		 * used a particular phrase.
-		 *
-		 * If the customer sends an email immediately after supplying
-		 * a ticket reference, verification is attempted. PHP still
-		 * performs the actual ownership check.
-		 */
 		return $latest_ticket_key;
 	}
 
@@ -1417,54 +1587,51 @@ class WP_RapidRescue_Chat_REST_API {
 		$ticket_key
 	) {
 
-		/*
-		 * Debug trace is returned separately from the actual conversation
-		 * transcript. The JavaScript displays it underneath the assistant
-		 * message.
-		 */
 		$debug_trace =
 			WP_RapidRescue_Chat_Debug::get_trace();
 
 		return rest_ensure_response(
 			array(
-				'success' => true,
+				'success' =>
+					true,
 
-				'data'    => array(
-					'conversation_id' =>
-						absint(
-							$conversation_id
-						),
+				'data' =>
+					array(
+						'conversation_id' =>
+							absint(
+								$conversation_id
+							),
 
-					'customer_id' =>
-						$customer_id
-							? absint(
-								$customer_id
-							)
-							: null,
+						'customer_id' =>
+							$customer_id
+								? absint(
+									$customer_id
+								)
+								: null,
 
-					'text' =>
-						$text,
+						'text' =>
+							$text,
 
-					'escalated' =>
-						(bool) $escalated,
+						'escalated' =>
+							(bool) $escalated,
 
-					'ticket_id' =>
-						$ticket_id
-							? absint(
-								$ticket_id
-							)
-							: null,
+						'ticket_id' =>
+							$ticket_id
+								? absint(
+									$ticket_id
+								)
+								: null,
 
-					'ticket_key' =>
-						$ticket_key
-							? sanitize_text_field(
-								$ticket_key
-							)
-							: null,
+						'ticket_key' =>
+							$ticket_key
+								? sanitize_text_field(
+									$ticket_key
+								)
+								: null,
 
-					'debug_trace' =>
-						$debug_trace,
-				),
+						'debug_trace' =>
+							$debug_trace,
+					),
 			)
 		);
 	}
@@ -1713,33 +1880,34 @@ class WP_RapidRescue_Chat_REST_API {
 				)
 			);
 
-		$confirmations = array(
-			'yes',
-			'yes please',
-			'yes create',
-			'yes create it',
-			'yes create a ticket',
-			'create it',
-			'create the ticket',
-			'create ticket',
-			'please create it',
-			'please create the ticket',
-			'please create a ticket',
-			'confirm',
-			'i confirm',
-			'i agree',
-			'go ahead',
-			'go ahead and create it',
-			'go ahead and create the ticket',
-			'go ahead create it',
-			'do it',
-			'please do',
-			'sure',
-			'sure create it',
-			'ok',
-			'okay',
-			'go',
-		);
+		$confirmations =
+			array(
+				'yes',
+				'yes please',
+				'yes create',
+				'yes create it',
+				'yes create a ticket',
+				'create it',
+				'create the ticket',
+				'create ticket',
+				'please create it',
+				'please create the ticket',
+				'please create a ticket',
+				'confirm',
+				'i confirm',
+				'i agree',
+				'go ahead',
+				'go ahead and create it',
+				'go ahead and create the ticket',
+				'go ahead create it',
+				'do it',
+				'please do',
+				'sure',
+				'sure create it',
+				'ok',
+				'okay',
+				'go',
+			);
 
 		return in_array(
 			$message,
@@ -1783,19 +1951,20 @@ class WP_RapidRescue_Chat_REST_API {
 				)
 			);
 
-		$cancellations = array(
-			'no',
-			'no thanks',
-			'cancel',
-			'cancel it',
-			'dont create it',
-			'do not create it',
-			'dont create the ticket',
-			'do not create the ticket',
-			'i changed my mind',
-			'never mind',
-			'nevermind',
-		);
+		$cancellations =
+			array(
+				'no',
+				'no thanks',
+				'cancel',
+				'cancel it',
+				'dont create it',
+				'do not create it',
+				'dont create the ticket',
+				'do not create the ticket',
+				'i changed my mind',
+				'never mind',
+				'nevermind',
+			);
 
 		return in_array(
 			$message,
@@ -1803,4 +1972,4 @@ class WP_RapidRescue_Chat_REST_API {
 			true
 		);
 	}
-} 
+}

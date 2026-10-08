@@ -20,155 +20,246 @@ document.addEventListener('DOMContentLoaded', function () {
 	const SESSION_STORAGE_KEY =
 		'wp_rapidrescue_chat_session_id';
 
-	const sessionId = getOrCreateSessionId();
+	const sessionId =
+		getOrCreateSessionId();
 
-	const sendButton = form.querySelector(
-		'.wp-rapidrescue-chat__send'
+	const sendButton =
+		form.querySelector(
+			'.wp-rapidrescue-chat__send'
+		);
+
+	input.addEventListener(
+		'keydown',
+		function (event) {
+
+			if (
+				event.key === 'Enter' &&
+				!event.shiftKey
+			) {
+				event.preventDefault();
+
+				if (!input.disabled) {
+					form.requestSubmit();
+				}
+			}
+		}
 	);
 
-	input.addEventListener('keydown', function (event) {
+	input.addEventListener(
+		'input',
+		function () {
+			autoResizeInput();
+		}
+	);
 
-		if (
-			event.key === 'Enter' &&
-			!event.shiftKey
-		) {
+	form.addEventListener(
+		'submit',
+		function (event) {
+
 			event.preventDefault();
 
-			if (!input.disabled) {
-				form.requestSubmit();
+			const message =
+				input.value.trim();
+
+			if (
+				!message ||
+				input.disabled
+			) {
+				return;
 			}
-		}
-	});
 
-	input.addEventListener('input', function () {
-		autoResizeInput();
-	});
+			addMessage(
+				message,
+				'user'
+			);
 
-	form.addEventListener('submit', function (event) {
-		event.preventDefault();
+			input.value = '';
 
-		const message = input.value.trim();
+			autoResizeInput();
 
-		if (!message || input.disabled) {
-			return;
-		}
+			setLoadingState(
+				true
+			);
 
-		addMessage(message, 'user');
+			const loadingMessage =
+				addLoadingMessage();
 
-		input.value = '';
-		autoResizeInput();
+			fetch(
+				wpRapidRescueChat.restUrl,
+				{
+					method: 'POST',
 
-		setLoadingState(true);
+					headers: {
+						'Content-Type':
+							'application/json'
+					},
 
-		const loadingMessage = addLoadingMessage();
+					body:
+						JSON.stringify(
+							{
+								message:
+									message,
 
-		fetch(
-			wpRapidRescueChat.restUrl,
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					message: message,
-					session_id: sessionId
-				})
-			}
-		)
-			.then(function (response) {
+								session_id:
+									sessionId
+							}
+						)
+				}
+			)
+				.then(
+					function (response) {
 
-				return response.json().then(
+						return response
+							.json()
+							.then(
+								function (data) {
+
+									if (
+										!response.ok
+									) {
+
+										const error =
+											new Error(
+												data.message ||
+												'The chat request failed.'
+											);
+
+										error.debugTrace =
+											data.data &&
+											Array.isArray(
+												data.data.debug_trace
+											)
+												? data.data.debug_trace
+												: [];
+
+										throw error;
+									}
+
+									return data;
+								}
+							);
+					}
+				)
+				.then(
 					function (data) {
 
-						if (!response.ok) {
-							throw new Error(
-								data.message ||
-								'The chat request failed.'
+						removeMessage(
+							loadingMessage
+						);
+
+						const reply =
+							data.data &&
+							data.data.text
+								? data.data.text
+								: 'I received your message, but no response was returned.';
+
+						addMessage(
+							reply,
+							'assistant'
+						);
+
+						if (
+							data.data &&
+							Array.isArray(
+								data.data.debug_trace
+							) &&
+							data.data.debug_trace.length
+						) {
+
+							addDebugTrace(
+								data.data.debug_trace
 							);
 						}
+					}
+				)
+				.catch(
+					function (error) {
 
-						return data;
+						removeMessage(
+							loadingMessage
+						);
+
+						addMessage(
+							error.message ||
+							'Sorry, something went wrong. Please try again.',
+							'assistant'
+						);
+
+						if (
+							error.debugTrace &&
+							Array.isArray(
+								error.debugTrace
+							) &&
+							error.debugTrace.length
+						) {
+
+							addDebugTrace(
+								error.debugTrace
+							);
+						}
+					}
+				)
+				.finally(
+					function () {
+
+						setLoadingState(
+							false
+						);
+
+						input.focus();
 					}
 				);
-			})
-			.then(function (data) {
+		}
+	);
 
-				removeMessage(loadingMessage);
+	function setLoadingState(
+		isLoading
+	) {
 
-				const reply =
-					data.data &&
-					data.data.text
-						? data.data.text
-						: 'I received your message, but no response was returned.';
-
-				addMessage(reply, 'assistant');
-
-				/*
-				 * Temporary debug display.
-				 *
-				 * This is returned separately by the REST API and is
-				 * never saved into the conversation transcript.
-				 */
-				if (
-					data.data &&
-					Array.isArray(data.data.debug_trace) &&
-					data.data.debug_trace.length
-				) {
-					addDebugTrace(
-						data.data.debug_trace
-					);
-				}
-			})
-			.catch(function (error) {
-
-				removeMessage(loadingMessage);
-
-				addMessage(
-					error.message ||
-					'Sorry, something went wrong. Please try again.',
-					'assistant'
-				);
-			})
-			.finally(function () {
-
-				setLoadingState(false);
-
-				input.focus();
-			});
-	});
-
-	function setLoadingState(isLoading) {
-
-		input.disabled = isLoading;
+		input.disabled =
+			isLoading;
 
 		if (sendButton) {
-			sendButton.disabled = isLoading;
+			sendButton.disabled =
+				isLoading;
 		}
 	}
 
-	function addMessage(text, type) {
+	function addMessage(
+		text,
+		type
+	) {
 
 		const messageElement =
-			document.createElement('div');
+			document.createElement(
+				'div'
+			);
 
 		messageElement.className =
 			'wp-rapidrescue-chat__message ' +
 			'wp-rapidrescue-chat__message--' +
 			type;
 
-		messageElement.textContent = text;
+		messageElement.textContent =
+			text;
 
-		messages.appendChild(messageElement);
+		messages.appendChild(
+			messageElement
+		);
 
 		scrollToBottom();
 
 		return messageElement;
 	}
 
-	function addDebugTrace(trace) {
+	function addDebugTrace(
+		trace
+	) {
 
 		const debugElement =
-			document.createElement('pre');
+			document.createElement(
+				'pre'
+			);
 
 		debugElement.className =
 			'wp-rapidrescue-chat__debug';
@@ -178,72 +269,94 @@ document.addEventListener('DOMContentLoaded', function () {
 			'────────────────────────────'
 		];
 
-		trace.forEach(function (entry) {
+		trace.forEach(
+			function (entry) {
 
-			if (!entry) {
-				return;
-			}
+				if (!entry) {
+					return;
+				}
 
-			const stage =
-				entry.stage
-					? String(entry.stage).toUpperCase()
-					: 'DEBUG';
+				const stage =
+					entry.stage
+						? String(
+							entry.stage
+						).toUpperCase()
+						: 'DEBUG';
 
-			const message =
-				entry.message
-					? String(entry.message)
-					: '';
+				const message =
+					entry.message
+						? String(
+							entry.message
+						)
+						: '';
 
-			let line =
-				'[' +
-				stage +
-				'] ' +
-				message;
+				let line =
+					'[' +
+					stage +
+					'] ' +
+					message;
 
-			if (
-				entry.data &&
-				typeof entry.data === 'object'
-			) {
+				if (
+					entry.data &&
+					typeof entry.data ===
+						'object'
+				) {
 
-				Object.keys(entry.data).forEach(
-					function (key) {
+					Object.keys(
+						entry.data
+					).forEach(
+						function (key) {
 
-						let value =
-							entry.data[key];
+							let value =
+								entry.data[key];
 
-						if (
-							value &&
-							typeof value === 'object'
-						) {
-							try {
-								value =
-									JSON.stringify(
-										value
-									);
-							} catch (error) {
-								value =
-									'[object]';
+							if (
+								value &&
+								typeof value ===
+									'object'
+							) {
+
+								try {
+
+									value =
+										JSON.stringify(
+											value
+										);
+
+								} catch (
+									error
+								) {
+
+									value =
+										'[object]';
+								}
 							}
-						}
 
-						line +=
-							' | ' +
-							key +
-							': ' +
-							String(value);
-					}
+							line +=
+								' | ' +
+								key +
+								': ' +
+								String(
+									value
+								);
+						}
+					);
+				}
+
+				lines.push(
+					line
 				);
 			}
-
-			lines.push(line);
-		});
+		);
 
 		lines.push(
 			'────────────────────────────'
 		);
 
 		debugElement.textContent =
-			lines.join('\n');
+			lines.join(
+				'\n'
+			);
 
 		messages.appendChild(
 			debugElement
@@ -255,7 +368,9 @@ document.addEventListener('DOMContentLoaded', function () {
 	function addLoadingMessage() {
 
 		const messageElement =
-			document.createElement('div');
+			document.createElement(
+				'div'
+			);
 
 		messageElement.className =
 			'wp-rapidrescue-chat__message ' +
@@ -269,19 +384,24 @@ document.addEventListener('DOMContentLoaded', function () {
 				'<span></span>' +
 			'</span>';
 
-		messages.appendChild(messageElement);
+		messages.appendChild(
+			messageElement
+		);
 
 		scrollToBottom();
 
 		return messageElement;
 	}
 
-	function removeMessage(element) {
+	function removeMessage(
+		element
+	) {
 
 		if (
 			element &&
 			element.parentNode
 		) {
+
 			element.parentNode.removeChild(
 				element
 			);
@@ -290,18 +410,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
 	function scrollToBottom() {
 
-		requestAnimationFrame(function () {
-			messages.scrollTop =
-				messages.scrollHeight;
-		});
+		requestAnimationFrame(
+			function () {
+
+				messages.scrollTop =
+					messages.scrollHeight;
+			}
+		);
 	}
 
 	function autoResizeInput() {
 
-		input.style.height = 'auto';
+		input.style.height =
+			'auto';
 
 		const newHeight =
-			Math.min(input.scrollHeight, 120);
+			Math.min(
+				input.scrollHeight,
+				120
+			);
 
 		input.style.height =
 			newHeight + 'px';
@@ -316,9 +443,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		if (
 			storedSessionId &&
-			typeof storedSessionId === 'string' &&
+			typeof storedSessionId ===
+				'string' &&
 			storedSessionId.length <= 64
 		) {
+
 			return storedSessionId;
 		}
 
@@ -337,8 +466,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
 		if (
 			window.crypto &&
-			typeof window.crypto.randomUUID === 'function'
+			typeof window.crypto.randomUUID ===
+				'function'
 		) {
+
 			return window.crypto.randomUUID();
 		}
 
@@ -346,7 +477,12 @@ document.addEventListener('DOMContentLoaded', function () {
 			'rr-' +
 			Date.now().toString(36) +
 			'-' +
-			Math.random().toString(36).substring(2, 15)
+			Math.random()
+				.toString(36)
+				.substring(
+					2,
+					15
+				)
 		);
 	}
-}); 
+});

@@ -67,9 +67,6 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 	/**
 	 * Send a request with business tools.
 	 *
-	 * The model may call one or more tools. PHP executes the tools
-	 * and their structured results are returned to the model.
-	 *
 	 * @param string $message User prompt.
 	 * @param array  $context Tool execution context.
 	 * @return array|WP_Error
@@ -91,11 +88,43 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		$all_tool_results =
 			array();
 
+		WP_RapidRescue_Chat_Debug::ai(
+			'Gemini tool-enabled request started',
+			array(
+				'tool_count' =>
+					is_array( $tools )
+						? count( $tools )
+						: 0,
+				'message_length' =>
+					strlen( (string) $message ),
+			)
+		);
+
 		for (
 			$round = 0;
 			$round < self::MAX_TOOL_ROUNDS;
 			$round++
 		) {
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini request round',
+				array(
+					'round' =>
+						$round + 1,
+					'previous_interaction_present' =>
+						! empty(
+							$previous_interaction_id
+						),
+					'input_type' =>
+						is_array( $input )
+							? 'array'
+							: 'string',
+					'input_count' =>
+						is_array( $input )
+							? count( $input )
+							: null,
+				)
+			);
 
 			$response =
 				$this->request(
@@ -105,6 +134,19 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				);
 
 			if ( is_wp_error( $response ) ) {
+
+				WP_RapidRescue_Chat_Debug::ai(
+					'Gemini request failed',
+					array(
+						'round' =>
+							$round + 1,
+						'error_code' =>
+							$response->get_error_code(),
+						'error_message' =>
+							$response->get_error_message(),
+					)
+				);
+
 				return $response;
 			}
 
@@ -115,6 +157,18 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					? $response['response_id']
 					: null;
 
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini response received',
+				array(
+					'round' =>
+						$round + 1,
+					'response_id_present' =>
+						! empty(
+							$previous_interaction_id
+						),
+				)
+			);
+
 			$tool_calls =
 				isset(
 					$response['tool_calls']
@@ -124,6 +178,16 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				)
 					? $response['tool_calls']
 					: array();
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini tool calls inspected',
+				array(
+					'round' =>
+						$round + 1,
+					'tool_call_count' =>
+						count( $tool_calls ),
+				)
+			);
 
 			/*
 			 * No tool call means the model has completed its response.
@@ -172,6 +236,18 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					$arguments = array();
 				}
 
+				WP_RapidRescue_Chat_Debug::tool(
+					'Executing Gemini function call',
+					array(
+						'tool' =>
+							$tool_name,
+						'call_id_present' =>
+							'' !== $call_id,
+						'argument_keys' =>
+							array_keys( $arguments ),
+					)
+				);
+
 				$result =
 					WP_RapidRescue_Chat_Tool_Manager::execute(
 						$tool_name,
@@ -180,6 +256,16 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 
 				if ( is_wp_error( $result ) ) {
+
+					WP_RapidRescue_Chat_Debug::tool(
+						'Gemini function returned WP_Error',
+						array(
+							'tool' =>
+								$tool_name,
+							'error_code' =>
+								$result->get_error_code(),
+						)
+					);
 
 					$result =
 						array(
@@ -208,8 +294,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 
 				/*
-				 * Carry verified customer/ticket authorization into
-				 * subsequent tool calls within this same request.
+				 * Carry verified customer/ticket authorization.
 				 */
 				if (
 					'verify_ticket' ===
@@ -258,31 +343,121 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				}
 
 				/*
-				 * Return the exact structured application result to
-				 * Gemini. The model can then decide what to say or
-				 * whether another tool call is required.
+				 * Encode the application result separately first.
+				 * This lets us detect PHP JSON encoding failures
+				 * before sending anything to Gemini.
 				 */
-				$function_results[] =
+				$result_json =
+					wp_json_encode(
+						$result
+					);
+
+				$json_error =
+					function_exists( 'json_last_error_msg' )
+						? json_last_error_msg()
+						: '';
+
+				if (
+					false === $result_json
+				) {
+
+					WP_RapidRescue_Chat_Debug::tool(
+						'Tool result JSON encoding failed',
+						array(
+							'tool' =>
+								$tool_name,
+							'json_error' =>
+								$json_error,
+						)
+					);
+
+					return new WP_Error(
+						'gemini_tool_result_json_error',
+						'The tool result could not be encoded as JSON.'
+					);
+				}
+
+				WP_RapidRescue_Chat_Debug::tool(
+					'Tool result encoded for Gemini',
+					array(
+						'tool' =>
+							$tool_name,
+						'json_length' =>
+							strlen( $result_json ),
+						'json_error' =>
+							$json_error,
+					)
+				);
+
+				$function_result =
 					array(
 						'type' =>
 							'function_result',
+
 						'name' =>
 							$tool_name,
+
 						'call_id' =>
 							$call_id,
+
 						'result' =>
 							array(
 								array(
 									'type' =>
 										'text',
+
 									'text' =>
-										wp_json_encode(
-											$result
-										),
+										$result_json,
 								),
 							),
 					);
+
+				$function_results[] =
+					$function_result;
 			}
+
+			/*
+			 * Validate the complete next input before sending it.
+			 */
+			$function_results_json =
+				wp_json_encode(
+					$function_results
+				);
+
+			if ( false === $function_results_json ) {
+
+				$json_error =
+					function_exists( 'json_last_error_msg' )
+						? json_last_error_msg()
+						: '';
+
+				WP_RapidRescue_Chat_Debug::ai(
+					'Gemini function-result payload JSON encoding failed',
+					array(
+						'round' =>
+							$round + 1,
+						'json_error' =>
+							$json_error,
+					)
+				);
+
+				return new WP_Error(
+					'gemini_function_results_json_error',
+					'The Gemini function-result payload could not be encoded as JSON.'
+				);
+			}
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini function-result payload prepared',
+				array(
+					'round' =>
+						$round + 1,
+					'function_result_count' =>
+						count( $function_results ),
+					'payload_length' =>
+						strlen( $function_results_json ),
+				)
+			);
 
 			$input =
 				$function_results;
@@ -392,6 +567,66 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				$previous_interaction_id;
 		}
 
+		$request_json =
+			wp_json_encode(
+				$request_body
+			);
+
+		if ( false === $request_json ) {
+
+			$json_error =
+				function_exists( 'json_last_error_msg' )
+					? json_last_error_msg()
+					: '';
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini request JSON encoding failed',
+				array(
+					'json_error' =>
+						$json_error,
+					'input_type' =>
+						is_array( $input )
+							? 'array'
+							: 'string',
+					'input_count' =>
+						is_array( $input )
+							? count( $input )
+							: null,
+				)
+			);
+
+			return new WP_Error(
+				'gemini_request_json_error',
+				'The Gemini request could not be encoded as JSON.'
+			);
+		}
+
+		WP_RapidRescue_Chat_Debug::ai(
+			'Sending Gemini HTTP request',
+			array(
+				'model' =>
+					$model,
+				'payload_length' =>
+					strlen( $request_json ),
+				'input_type' =>
+					is_array( $input )
+						? 'array'
+						: 'string',
+				'input_count' =>
+					is_array( $input )
+						? count( $input )
+						: null,
+				'tools_count' =>
+					is_array( $tools )
+						? count( $tools )
+						: 0,
+				'previous_interaction_present' =>
+					! empty(
+						$previous_interaction_id
+					),
+			)
+		);
+
 		$response =
 			wp_remote_post(
 				self::API_ENDPOINT,
@@ -403,18 +638,25 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						array(
 							'x-goog-api-key' =>
 								$api_key,
+
 							'Content-Type' =>
 								'application/json',
 						),
 
 					'body' =>
-						wp_json_encode(
-							$request_body
-						),
+						$request_json,
 				)
 			);
 
 		if ( is_wp_error( $response ) ) {
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini HTTP request returned WP_Error',
+				array(
+					'error_code' =>
+						$response->get_error_code(),
+				)
+			);
 
 			return new WP_Error(
 				'gemini_request_failed',
@@ -431,6 +673,16 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			wp_remote_retrieve_body(
 				$response
 			);
+
+		WP_RapidRescue_Chat_Debug::ai(
+			'Gemini HTTP response received',
+			array(
+				'status_code' =>
+					$status_code,
+				'body_length' =>
+					strlen( $body ),
+			)
+		);
 
 		$data =
 			json_decode(
@@ -459,6 +711,16 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 			}
 
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini API returned an error',
+				array(
+					'status_code' =>
+						$status_code,
+					'error_message' =>
+						$error_message,
+				)
+			);
+
 			return new WP_Error(
 				'gemini_api_error',
 				$error_message
@@ -466,6 +728,16 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		}
 
 		if ( ! is_array( $data ) ) {
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini response JSON decoding failed',
+				array(
+					'json_error' =>
+						function_exists( 'json_last_error_msg' )
+							? json_last_error_msg()
+							: '',
+				)
+			);
 
 			return new WP_Error(
 				'invalid_gemini_response',
@@ -660,4 +932,4 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				$tool_calls,
 		);
 	}
-}   
+}
