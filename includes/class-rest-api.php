@@ -40,6 +40,7 @@ class WP_RapidRescue_Chat_REST_API {
 								'' !== trim( $value );
 						},
 					),
+
 					'session_id' => array(
 						'required'          => true,
 						'type'              => 'string',
@@ -235,7 +236,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 6. Create the initial PHP-controlled tool context.
+		 * 6. Create PHP-controlled tool context.
 		 * -------------------------------------------------------------
 		 */
 		$tool_context = array(
@@ -252,31 +253,23 @@ class WP_RapidRescue_Chat_REST_API {
 				array(),
 		);
 
+		$ticket_context = array();
+
 		/*
 		 * -------------------------------------------------------------
-		 * 7. Resolve an explicitly supplied ticket number.
+		 * 7. Detect an explicitly supplied ticket number.
 		 * -------------------------------------------------------------
-		 *
-		 * THIS IS NOW PHP-CONTROLLED.
-		 *
-		 * The AI does not get to decide whether the ticket is verified.
-		 *
-		 * If the customer says:
-		 *
-		 *     RR-00005
-		 *
-		 * PHP immediately performs the ticket lookup.
-		 *
-		 * If the customer has an identified email, PHP also performs
-		 * the actual ticket/email verification.
 		 */
 		$explicit_ticket_key =
 			WP_RapidRescue_Chat_Ticket::extract_ticket_key(
 				$message
 			);
 
-		$ticket_context = array();
-
+		/*
+		 * -------------------------------------------------------------
+		 * 8. Handle an explicit ticket number.
+		 * -------------------------------------------------------------
+		 */
 		if ( '' !== $explicit_ticket_key ) {
 
 			$ticket_resolution =
@@ -292,15 +285,25 @@ class WP_RapidRescue_Chat_REST_API {
 			$ticket_context =
 				$ticket_resolution['ticket_context'];
 
-			/*
-			 * If PHP successfully verified this ticket, make it the
-			 * active ticket for this conversation.
-			 */
 			if (
 				! empty(
 					$ticket_resolution['verified']
 				)
 			) {
+
+				$verified_customer_id =
+					isset(
+						$ticket_resolution['verified_customer_id']
+					)
+						? absint(
+							$ticket_resolution['verified_customer_id']
+						)
+						: $customer_id;
+
+				if ( $verified_customer_id > 0 ) {
+					$customer_id =
+						$verified_customer_id;
+				}
 
 				WP_RapidRescue_Chat_Conversation::set_active_ticket(
 					$conversation_id,
@@ -312,21 +315,100 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 8. If there was no explicit ticket number, use the previously
-		 *    verified active ticket.
+		 * 9. IMPORTANT:
+		 *
+		 * If the customer previously supplied a ticket number and the
+		 * assistant asked for the associated email, the next message
+		 * may contain ONLY the email address.
+		 *
+		 * The ticket number therefore has to be recovered from the
+		 * recent conversation and verified together with the new email.
 		 * -------------------------------------------------------------
-		 *
-		 * IMPORTANT:
-		 *
-		 * get_active_ticket_key() only returns a ticket when the
-		 * conversation explicitly stored active_ticket_verified=true.
-		 *
-		 * We DO NOT call verify_ticket_context() here.
-		 *
-		 * The stored conversation state is the record that the ticket
-		 * was already successfully verified in this conversation.
 		 */
-		if ( '' === $explicit_ticket_key ) {
+		if (
+			'' === $explicit_ticket_key &&
+			self::looks_like_email(
+				$message
+			)
+		) {
+
+			$pending_ticket_key =
+				self::find_ticket_waiting_for_email(
+					$history
+				);
+
+			if ( '' !== $pending_ticket_key ) {
+
+				$verification =
+					self::verify_ticket_from_email_message(
+						$pending_ticket_key,
+						$message,
+						$customer_id,
+						$tool_context
+					);
+
+				if (
+					! empty(
+						$verification['verified']
+					)
+				) {
+
+					$verified_customer_id =
+						isset(
+							$verification['verified_customer_id']
+						)
+							? absint(
+								$verification['verified_customer_id']
+							)
+							: $customer_id;
+
+					if (
+						$verified_customer_id > 0
+					) {
+
+						$customer_id =
+							$verified_customer_id;
+
+						$tool_context['customer_id'] =
+							$verified_customer_id;
+					}
+
+					$tool_context =
+						$verification['context'];
+
+					$ticket_context =
+						$verification['ticket_context'];
+
+					/*
+					 * The ticket is now verified for this conversation.
+					 */
+					WP_RapidRescue_Chat_Conversation::set_active_ticket(
+						$conversation_id,
+						$pending_ticket_key,
+						$customer_id
+					);
+				} else {
+
+					/*
+					 * Preserve the privacy-safe verification state so
+					 * the AI can communicate the correct result.
+					 */
+					$ticket_context =
+						$verification['ticket_context'];
+				}
+			}
+		}
+
+		/*
+		 * -------------------------------------------------------------
+		 * 10. If there was no explicit ticket number and no pending
+		 * verification email, use the previously verified active ticket.
+		 * -------------------------------------------------------------
+		 */
+		if (
+			'' === $explicit_ticket_key &&
+			empty( $ticket_context )
+		) {
 
 			$active_ticket_key =
 				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
@@ -356,10 +438,6 @@ class WP_RapidRescue_Chat_REST_API {
 					)
 				) {
 
-					/*
-					 * The conversation itself records that this ticket
-					 * was previously verified.
-					 */
 					$tool_context =
 						WP_RapidRescue_Chat_Tool_Security::verify_ticket_context(
 							$active_ticket_key,
@@ -377,7 +455,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 9. Ask the AI to respond.
+		 * 11. Ask the AI to respond.
 		 * -------------------------------------------------------------
 		 */
 		$response =
@@ -409,7 +487,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 10. Process AI action.
+		 * 12. Process AI action.
 		 * -------------------------------------------------------------
 		 */
 		$action =
@@ -433,7 +511,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 11. Store pending escalation offers.
+		 * 13. Store pending escalation offers.
 		 * -------------------------------------------------------------
 		 */
 		if (
@@ -504,7 +582,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 12. Process successful ticket creation.
+		 * 14. Process successful ticket creation.
 		 * -------------------------------------------------------------
 		 */
 		$tool_results =
@@ -549,11 +627,6 @@ class WP_RapidRescue_Chat_REST_API {
 					$conversation_id
 				);
 
-				/*
-				 * A ticket created for the current customer is
-				 * immediately considered accessible in this
-				 * conversation.
-				 */
 				WP_RapidRescue_Chat_Conversation::set_active_ticket(
 					$conversation_id,
 					$ticket_key,
@@ -570,7 +643,7 @@ class WP_RapidRescue_Chat_REST_API {
 
 		/*
 		 * -------------------------------------------------------------
-		 * 13. Save assistant response.
+		 * 15. Save assistant response.
 		 * -------------------------------------------------------------
 		 */
 		WP_RapidRescue_Chat_Conversation::add_message(
@@ -592,8 +665,6 @@ class WP_RapidRescue_Chat_REST_API {
 	/**
 	 * Resolve an explicitly supplied ticket number.
 	 *
-	 * PHP, not the AI, owns this decision.
-	 *
 	 * @param string $ticket_key Ticket number.
 	 * @param int    $customer_id Current customer ID.
 	 * @param array  $context Tool context.
@@ -613,9 +684,10 @@ class WP_RapidRescue_Chat_REST_API {
 			);
 
 		$result = array(
-			'verified'       => false,
-			'context'        => $context,
-			'ticket_context' => array(),
+			'verified'            => false,
+			'verified_customer_id' => $customer_id,
+			'context'             => $context,
+			'ticket_context'      => array(),
 		);
 
 		if (
@@ -628,9 +700,6 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
-		/*
-		 * First perform the privacy-safe lookup.
-		 */
 		$lookup =
 			WP_RapidRescue_Chat_Tool_Manager::execute(
 				'lookup_ticket',
@@ -645,8 +714,10 @@ class WP_RapidRescue_Chat_REST_API {
 			$result['ticket_context'][] = array(
 				'ticket_key' =>
 					$ticket_key,
+
 				'explicit_reference' =>
 					true,
+
 				'lookup_status' =>
 					'not_verified',
 			);
@@ -654,10 +725,6 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
-		/*
-		 * If the ticket does not exist, do not reveal that fact in a
-		 * way that could disclose information about another customer.
-		 */
 		if (
 			empty(
 				$lookup['found']
@@ -667,8 +734,10 @@ class WP_RapidRescue_Chat_REST_API {
 			$result['ticket_context'][] = array(
 				'ticket_key' =>
 					$ticket_key,
+
 				'explicit_reference' =>
 					true,
+
 				'lookup_status' =>
 					'not_verified',
 			);
@@ -676,11 +745,6 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
-		/*
-		 * -------------------------------------------------------------
-		 * Determine whether PHP already has a customer email.
-		 * -------------------------------------------------------------
-		 */
 		$email = '';
 
 		if ( $customer_id > 0 ) {
@@ -705,19 +769,22 @@ class WP_RapidRescue_Chat_REST_API {
 		}
 
 		/*
-		 * No customer email means the ticket cannot be verified yet.
+		 * No email yet.
 		 *
-		 * We intentionally do not expose any ticket-private fields.
+		 * This is NOT a verification failure.
 		 */
 		if ( '' === $email ) {
 
 			$result['ticket_context'][] = array(
 				'ticket_key' =>
 					$ticket_key,
+
 				'explicit_reference' =>
 					true,
+
 				'lookup_status' =>
-					'not_verified',
+					'email_required',
+
 				'requires_email' =>
 					true,
 			);
@@ -725,17 +792,68 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
-		/*
-		 * -------------------------------------------------------------
-		 * Perform the REAL PHP authorization check.
-		 * -------------------------------------------------------------
-		 */
+		return self::perform_ticket_verification(
+			$ticket_key,
+			$email,
+			$customer_id,
+			$context
+		);
+	}
+
+	/**
+	 * Verify a ticket from an email-only follow-up message.
+	 *
+	 * @param string $ticket_key Ticket number.
+	 * @param string $email Email.
+	 * @param int    $customer_id Current customer ID.
+	 * @param array  $context Tool context.
+	 * @return array
+	 */
+	private static function verify_ticket_from_email_message(
+		$ticket_key,
+		$email,
+		$customer_id,
+		$context
+	) {
+
+		return self::perform_ticket_verification(
+			$ticket_key,
+			$email,
+			$customer_id,
+			$context
+		);
+	}
+
+	/**
+	 * Perform authoritative PHP ticket verification.
+	 *
+	 * @param string $ticket_key Ticket number.
+	 * @param string $email Email.
+	 * @param int    $customer_id Current customer ID.
+	 * @param array  $context Tool context.
+	 * @return array
+	 */
+	private static function perform_ticket_verification(
+		$ticket_key,
+		$email,
+		$customer_id,
+		$context
+	) {
+
+		$result = array(
+			'verified'            => false,
+			'verified_customer_id' => $customer_id,
+			'context'             => $context,
+			'ticket_context'      => array(),
+		);
+
 		$verify =
 			WP_RapidRescue_Chat_Tool_Manager::execute(
 				'verify_ticket',
 				array(
 					'ticket_key' =>
 						$ticket_key,
+
 					'email' =>
 						$email,
 				),
@@ -744,21 +862,16 @@ class WP_RapidRescue_Chat_REST_API {
 
 		if (
 			is_wp_error( $verify ) ||
-			! is_array( $verify ) ||
-			empty(
-				$verify['verified']
-			)
+			! is_array( $verify )
 		) {
 
-			/*
-			 * Never reveal whether the ticket exists but belongs to
-			 * someone else.
-			 */
 			$result['ticket_context'][] = array(
 				'ticket_key' =>
 					$ticket_key,
+
 				'explicit_reference' =>
 					true,
+
 				'lookup_status' =>
 					'not_verified',
 			);
@@ -766,87 +879,315 @@ class WP_RapidRescue_Chat_REST_API {
 			return $result;
 		}
 
+		$state =
+			isset(
+				$verify['state']
+			)
+				? sanitize_key(
+					$verify['state']
+				)
+				: '';
+
 		/*
-		 * -------------------------------------------------------------
-		 * SUCCESS.
+		 * The tool manager returns application state in:
 		 *
-		 * Only now may private ticket information reach the AI.
-		 * -------------------------------------------------------------
+		 *     state = verified
+		 *
+		 * The ticket itself is returned inside:
+		 *
+		 *     data.ticket
 		 */
 		if (
-			isset(
-				$verify['context']
+			! empty(
+				$verify['success']
 			) &&
-			is_array(
-				$verify['context']
-			) &&
-			isset(
-				$verify['context']['verified_ticket_keys']
-			) &&
-			is_array(
-				$verify['context']['verified_ticket_keys']
-			)
+			'verified' === $state
 		) {
 
-			$result['context']['verified_ticket_keys'] =
-				$verify['context']['verified_ticket_keys'];
+			$verified_customer_id =
+				isset(
+					$verify['customer_id']
+				)
+					? absint(
+						$verify['customer_id']
+					)
+					: $customer_id;
+
+			$context['customer_id'] =
+				$verified_customer_id;
+
+			if (
+				isset(
+					$verify['context']
+				) &&
+				is_array(
+					$verify['context']
+				)
+			) {
+
+				$context =
+					array_merge(
+						$context,
+						$verify['context']
+					);
+			}
+
+			$ticket =
+				isset(
+					$verify['data']['ticket']
+				) &&
+				is_array(
+					$verify['data']['ticket']
+				)
+					? $verify['data']['ticket']
+					: array();
+
+			if ( empty( $ticket ) ) {
+
+				$result['ticket_context'][] = array(
+					'ticket_key' =>
+						$ticket_key,
+
+					'explicit_reference' =>
+						true,
+
+					'lookup_status' =>
+						'not_verified',
+				);
+
+				return $result;
+			}
+
+			$result['verified'] =
+				true;
+
+			$result['verified_customer_id'] =
+				$verified_customer_id;
+
+			$result['context'] =
+				$context;
+
+			$result['ticket_context'][] = array(
+				'ticket_key' =>
+					$ticket_key,
+
+				'subject' =>
+					isset(
+						$ticket['subject']
+					)
+						? $ticket['subject']
+						: '',
+
+				'status' =>
+					isset(
+						$ticket['status']
+					)
+						? $ticket['status']
+						: '',
+
+				'priority' =>
+					isset(
+						$ticket['priority']
+					)
+						? $ticket['priority']
+						: '',
+
+				'summary' =>
+					isset(
+						$ticket['summary']
+					)
+						? $ticket['summary']
+						: '',
+
+				'explicit_reference' =>
+					true,
+
+				'lookup_status' =>
+					'verified',
+			);
+
+			return $result;
 		}
 
-		$result['context']['customer_id'] =
-			$customer_id;
-
-		$ticket =
-			isset(
-				$verify['ticket']
-			) &&
-			is_array(
-				$verify['ticket']
-			)
-				? $verify['ticket']
-				: array();
-
+		/*
+		 * Verification failed.
+		 *
+		 * Do not expose whether the ticket exists for another
+		 * customer.
+		 */
 		$result['ticket_context'][] = array(
 			'ticket_key' =>
 				$ticket_key,
-
-			'subject' =>
-				isset(
-					$ticket['subject']
-				)
-					? $ticket['subject']
-					: '',
-
-			'status' =>
-				isset(
-					$ticket['status']
-				)
-					? $ticket['status']
-					: '',
-
-			'priority' =>
-				isset(
-					$ticket['priority']
-				)
-					? $ticket['priority']
-					: '',
-
-			'summary' =>
-				isset(
-					$ticket['summary']
-				)
-					? $ticket['summary']
-					: '',
 
 			'explicit_reference' =>
 				true,
 
 			'lookup_status' =>
-				'verified',
+				'not_verified',
+
+			'verification_failed' =>
+				true,
 		);
 
-		$result['verified'] = true;
-
 		return $result;
+	}
+
+	/**
+	 * Find the ticket for which the conversation is waiting for an email.
+	 *
+	 * We intentionally derive this from the conversation rather than
+	 * from arbitrary customer text.
+	 *
+	 * @param array $history Conversation messages.
+	 * @return string
+	 */
+	private static function find_ticket_waiting_for_email(
+		$history
+	) {
+
+		if ( ! is_array( $history ) ) {
+			return '';
+		}
+
+		/*
+		 * Walk backwards so the most recent ticket reference wins.
+		 */
+		$history = array_reverse(
+			$history
+		);
+
+		$latest_ticket_key = '';
+
+		foreach (
+			$history as $item
+		) {
+
+			$content =
+				isset(
+					$item->message
+				)
+					? sanitize_textarea_field(
+						$item->message
+					)
+					: '';
+
+			if ( '' === $content ) {
+				continue;
+			}
+
+			$ticket_key =
+				WP_RapidRescue_Chat_Ticket::extract_ticket_key(
+					$content
+				);
+
+			if ( '' !== $ticket_key ) {
+
+				$latest_ticket_key =
+					$ticket_key;
+
+				break;
+			}
+		}
+
+		if ( '' === $latest_ticket_key ) {
+			return '';
+		}
+
+		/*
+		 * We only treat the ticket as pending email verification when
+		 * the most recent assistant message explicitly requested an
+		 * email address.
+		 */
+		foreach (
+			$history as $item
+		) {
+
+			$role =
+				isset(
+					$item->role
+				)
+					? sanitize_key(
+						$item->role
+					)
+					: '';
+
+			if (
+				'assistant' !== $role
+			) {
+				continue;
+			}
+
+			$content =
+				isset(
+					$item->message
+				)
+					? strtolower(
+						sanitize_textarea_field(
+							$item->message
+						)
+					)
+					: '';
+
+			if ( '' === $content ) {
+				continue;
+			}
+
+			/*
+			 * If the assistant asked for the email associated with
+			 * the ticket, this is the pending verification flow.
+			 */
+			if (
+				false !==
+				strpos(
+					$content,
+					'email address'
+				) ||
+				false !==
+				strpos(
+					$content,
+					'email associated'
+				)
+			) {
+
+				return $latest_ticket_key;
+			}
+
+			/*
+			 * We reached the latest assistant response without an
+			 * email request, so don't infer a pending verification.
+			 */
+			break;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Determine whether a message is an email address.
+	 *
+	 * @param string $message Message.
+	 * @return bool
+	 */
+	private static function looks_like_email(
+		$message
+	) {
+
+		$message =
+			trim(
+				sanitize_text_field(
+					$message
+				)
+			);
+
+		if ( '' === $message ) {
+			return false;
+		}
+
+		return false !==
+			filter_var(
+				$message,
+				FILTER_VALIDATE_EMAIL
+			);
 	}
 
 	/**
@@ -872,6 +1213,7 @@ class WP_RapidRescue_Chat_REST_API {
 		return rest_ensure_response(
 			array(
 				'success' => true,
+
 				'data'    => array(
 					'conversation_id' =>
 						absint(
@@ -986,6 +1328,7 @@ class WP_RapidRescue_Chat_REST_API {
 			return array(
 				'ticket_id' =>
 					$ticket_id,
+
 				'ticket_key' =>
 					$ticket_key,
 			);
