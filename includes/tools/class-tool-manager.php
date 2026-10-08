@@ -11,15 +11,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Manages AI tools and executes them through PHP.
- *
- * The AI may request a tool, but PHP remains responsible for:
- *
- * - validating arguments
- * - checking identity
- * - checking authorization
- * - querying WordPress
- * - creating records
- * - returning only safe data
  */
 class WP_RapidRescue_Chat_Tool_Manager {
 
@@ -45,7 +36,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	}
 
 	/**
-	 * Register all business tools.
+	 * Register business tools.
 	 *
 	 * @return void
 	 */
@@ -54,114 +45,154 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		self::$tools = array(
 
 			'search_knowledge' => array(
-				'name'        => 'search_knowledge',
+				'name' =>
+					'search_knowledge',
 				'description' =>
-					'Search the approved business knowledge base for information relevant to the customer request.',
-				'parameters'  => array(
-					'type'       => 'object',
-					'properties' => array(
-						'query' => array(
-							'type'        => 'string',
-							'description' =>
-								'The customer question or topic to search for.',
-						),
+					'Search the approved business knowledge base for authoritative information relevant to the customer request. Use this when the answer depends on business-specific information such as services, pricing, policies, procedures, or support information.',
+				'parameters' =>
+					array(
+						'type' =>
+							'object',
+						'properties' =>
+							array(
+								'query' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'The customer question or business topic to search for.',
+									),
+							),
+						'required' =>
+							array(
+								'query',
+							),
 					),
-					'required'   => array(
-						'query',
-					),
-				),
 			),
 
 			'get_customer' => array(
-				'name'        => 'get_customer',
+				'name' =>
+					'get_customer',
 				'description' =>
-					'Retrieve the currently identified customer basic profile. Only the current conversation customer may be requested.',
-				'parameters'  => array(
-					'type'       => 'object',
-					'properties' => array(),
-					'required'   => array(),
-				),
+					'Retrieve the basic profile of the customer associated with the current conversation. Do not use this tool to access another customer.',
+				'parameters' =>
+					array(
+						'type' =>
+							'object',
+						'properties' =>
+							array(),
+						'required' =>
+							array(),
+					),
 			),
 
 			'lookup_ticket' => array(
-				'name'        => 'lookup_ticket',
+				'name' =>
+					'lookup_ticket',
 				'description' =>
-					'Look up a support ticket reference without revealing private ticket information. Use this before attempting ticket verification.',
-				'parameters'  => array(
-					'type'       => 'object',
-					'properties' => array(
-						'ticket_key' => array(
-							'type'        => 'string',
-							'description' =>
-								'The support ticket reference, such as RR-00004.',
-						),
+					'Begin the support ticket lookup workflow using a ticket reference. This tool does not reveal private ticket information. The result tells the assistant what information is required next, such as an associated email address.',
+				'parameters' =>
+					array(
+						'type' =>
+							'object',
+						'properties' =>
+							array(
+								'ticket_key' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'The support ticket reference, such as RR-00005.',
+									),
+							),
+						'required' =>
+							array(
+								'ticket_key',
+							),
 					),
-					'required'   => array(
-						'ticket_key',
-					),
-				),
 			),
 
 			'verify_ticket' => array(
-				'name'        => 'verify_ticket',
+				'name' =>
+					'verify_ticket',
 				'description' =>
-					'Verify that a customer is authorized to access a specific support ticket using the ticket reference and associated email address.',
-				'parameters'  => array(
-					'type'       => 'object',
-					'properties' => array(
-						'ticket_key' => array(
-							'type'        => 'string',
-							'description' =>
-								'The support ticket reference.',
-						),
-						'email' => array(
-							'type'        => 'string',
-							'description' =>
-								'The email address associated with the support ticket.',
-						),
+					'Verify customer access to a specific support ticket using the ticket reference and associated email address. Only after successful verification may private ticket information be returned.',
+				'parameters' =>
+					array(
+						'type' =>
+							'object',
+						'properties' =>
+							array(
+								'ticket_key' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'The support ticket reference.',
+									),
+								'email' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'The email address associated with the support ticket.',
+									),
+							),
+						'required' =>
+							array(
+								'ticket_key',
+								'email',
+							),
 					),
-					'required'   => array(
-						'ticket_key',
-						'email',
-					),
-				),
 			),
 
 			'create_ticket' => array(
-				'name'        => 'create_ticket',
+				'name' =>
+					'create_ticket',
 				'description' =>
-					'Create a new human-support ticket after PHP has confirmed that the customer explicitly authorized ticket creation. PHP generates the ticket number.',
-				'parameters'  => array(
-					'type'       => 'object',
-					'properties' => array(
-						'subject' => array(
-							'type'        => 'string',
-							'description' =>
-								'A concise support ticket subject.',
-						),
-						'summary' => array(
-							'type'        => 'string',
-							'description' =>
-								'A factual summary of the customer issue using only information actually supplied by the customer.',
-						),
-						'priority' => array(
-							'type'        => 'string',
-							'enum'        => array(
-								'low',
-								'normal',
-								'high',
-								'urgent',
+					'Create a new human-support ticket. PHP controls whether ticket creation is authorized and generates the ticket number. Never invent a ticket number.',
+				'parameters' =>
+					array(
+						'type' =>
+							'object',
+						'properties' =>
+							array(
+								'subject' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'A concise support ticket subject.',
+									),
+								'summary' =>
+									array(
+										'type' =>
+											'string',
+										'description' =>
+											'A factual summary of the customer issue using information supplied by the customer.',
+									),
+								'priority' =>
+									array(
+										'type' =>
+											'string',
+										'enum' =>
+											array(
+												'low',
+												'normal',
+												'high',
+												'urgent',
+											),
+										'description' =>
+											'Ticket priority. Use normal unless the issue clearly warrants another priority.',
+									),
 							),
-							'description' =>
-								'Ticket priority. Use normal unless the issue clearly warrants another priority.',
-						),
+						'required' =>
+							array(
+								'subject',
+								'summary',
+								'priority',
+							),
 					),
-					'required'   => array(
-						'subject',
-						'summary',
-						'priority',
-					),
-				),
 			),
 		);
 	}
@@ -184,20 +215,27 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	 * @param string $tool_name Tool name.
 	 * @return array|null
 	 */
-	public static function get_tool( $tool_name ) {
+	public static function get_tool(
+		$tool_name
+	) {
 
 		self::init();
 
-		$tool_name = sanitize_key(
-			$tool_name
-		);
+		$tool_name =
+			sanitize_key(
+				$tool_name
+			);
 
 		if (
 			isset(
-				self::$tools[ $tool_name ]
+				self::$tools[
+					$tool_name
+				]
 			)
 		) {
-			return self::$tools[ $tool_name ];
+			return self::$tools[
+				$tool_name
+			];
 		}
 
 		return null;
@@ -219,13 +257,16 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 		self::init();
 
-		$tool_name = sanitize_key(
-			$tool_name
-		);
+		$tool_name =
+			sanitize_key(
+				$tool_name
+			);
 
 		if (
 			! isset(
-				self::$tools[ $tool_name ]
+				self::$tools[
+					$tool_name
+				]
 			)
 		) {
 			return new WP_Error(
@@ -285,7 +326,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	 * Search approved business knowledge.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Execution context.
+	 * @param array $context   Tool context.
 	 * @return array|WP_Error
 	 */
 	private static function search_knowledge(
@@ -293,18 +334,23 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$context
 	) {
 
-		$query = isset(
-			$arguments['query']
-		)
-			? sanitize_textarea_field(
+		$query =
+			isset(
 				$arguments['query']
 			)
-			: '';
+				? sanitize_textarea_field(
+					$arguments['query']
+				)
+				: '';
 
 		if ( '' === trim( $query ) ) {
-			return new WP_Error(
-				'invalid_knowledge_query',
-				'A knowledge search query is required.'
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'invalid_request',
+				'next_action' =>
+					'ask_for_knowledge_query',
 			);
 		}
 
@@ -316,44 +362,77 @@ class WP_RapidRescue_Chat_Tool_Manager {
 
 		$safe_results = array();
 
-		foreach ( $results as $result ) {
+		foreach (
+			$results as $result
+		) {
 
 			if ( ! is_array( $result ) ) {
 				continue;
 			}
 
 			$safe_results[] = array(
-				'title' => isset(
-					$result['title']
-				)
-					? sanitize_text_field(
+				'title' =>
+					isset(
 						$result['title']
 					)
-					: '',
-				'content' => isset(
-					$result['content']
-				)
-					? wp_strip_all_tags(
+						? sanitize_text_field(
+							$result['title']
+						)
+						: '',
+
+				'content' =>
+					isset(
 						$result['content']
 					)
-					: '',
-				'categories' => isset(
-					$result['categories']
-				) &&
-				is_array(
-					$result['categories']
-				)
-					? array_map(
-						'sanitize_text_field',
+						? wp_strip_all_tags(
+							$result['content']
+						)
+						: '',
+
+				'categories' =>
+					isset(
+						$result['categories']
+					) &&
+					is_array(
 						$result['categories']
 					)
-					: array(),
+						? array_map(
+							'sanitize_text_field',
+							$result['categories']
+						)
+						: array(),
+			);
+		}
+
+		if ( empty( $safe_results ) ) {
+
+			return array(
+				'success' =>
+					true,
+				'state' =>
+					'not_found',
+				'next_action' =>
+					'knowledge_not_confirmed',
+				'data' =>
+					array(
+						'results' =>
+							array(),
+					),
 			);
 		}
 
 		return array(
-			'success' => true,
-			'results' => $safe_results,
+			'success' =>
+				true,
+			'state' =>
+				'found',
+			'next_action' =>
+				'use_knowledge_results',
+			'data' =>
+				array(
+					'results' =>
+						$safe_results,
+				),
 		);
 	}
 
@@ -361,7 +440,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	 * Get the current customer.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Execution context.
+	 * @param array $context   Tool context.
 	 * @return array|WP_Error
 	 */
 	private static function get_customer(
@@ -377,8 +456,12 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		if ( $customer_id < 1 ) {
 
 			return array(
-				'success' => false,
-				'status'  => 'not_identified',
+				'success' =>
+					false,
+				'state' =>
+					'not_identified',
+				'next_action' =>
+					'ask_customer_for_identity',
 			);
 		}
 
@@ -390,31 +473,41 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		if ( ! $customer ) {
 
 			return array(
-				'success' => false,
-				'status'  => 'not_found',
+				'success' =>
+					false,
+				'state' =>
+					'not_found',
+				'next_action' =>
+					'customer_not_available',
 			);
 		}
 
 		return array(
-			'success'  => true,
-			'status'   => 'verified',
-			'customer' =>
-				WP_RapidRescue_Chat_Tool_Security::customer_to_safe_array(
-					$customer
+			'success' =>
+				true,
+			'state' =>
+				'found',
+			'next_action' =>
+				'use_customer_information',
+			'data' =>
+				array(
+					'customer' =>
+						WP_RapidRescue_Chat_Tool_Security::customer_to_safe_array(
+							$customer
+						),
 				),
 		);
 	}
 
 	/**
-	 * Look up a ticket without revealing private information.
+	 * Start a ticket lookup.
 	 *
-	 * IMPORTANT:
-	 *
-	 * This method intentionally does NOT return the ticket subject,
-	 * status, summary, priority, customer ID, or email.
+	 * This intentionally does not disclose whether the ticket exists.
+	 * Both an existing ticket and an unknown ticket require the same
+	 * next step: provide the associated email address.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Execution context.
+	 * @param array $context   Tool context.
 	 * @return array|WP_Error
 	 */
 	private static function lookup_ticket(
@@ -422,15 +515,16 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$context
 	) {
 
-		$ticket_key = isset(
-			$arguments['ticket_key']
-		)
-			? strtoupper(
-				sanitize_text_field(
-					$arguments['ticket_key']
-				)
+		$ticket_key =
+			isset(
+				$arguments['ticket_key']
 			)
-			: '';
+				? strtoupper(
+					sanitize_text_field(
+						$arguments['ticket_key']
+					)
+				)
+				: '';
 
 		if (
 			'' === $ticket_key ||
@@ -439,48 +533,46 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$ticket_key
 			)
 		) {
-			return new WP_Error(
-				'invalid_ticket_key',
-				'The ticket reference is invalid.'
-			);
-		}
 
-		$ticket =
-			WP_RapidRescue_Chat_Ticket::get_by_key(
-				$ticket_key
-			);
-
-		if ( ! $ticket ) {
-
-			/*
-			 * Deliberately generic.
-			 *
-			 * The AI must not learn whether a guessed ticket belongs
-			 * to another customer.
-			 */
 			return array(
-				'success'              => true,
-				'found'                => false,
-				'verified'             => false,
-				'requires_verification' => true,
-				'ticket_key'           => $ticket_key,
+				'success' =>
+					false,
+				'state' =>
+					'invalid_ticket_reference',
+				'next_action' =>
+					'ask_customer_to_check_ticket_number',
 			);
 		}
 
 		return array(
-			'success'               => true,
-			'found'                 => true,
-			'verified'              => false,
-			'requires_verification' => true,
-			'ticket_key'            => $ticket_key,
+			'success' =>
+				true,
+
+			/*
+			 * Deliberately generic.
+			 *
+			 * We do not reveal whether the ticket exists before
+			 * verification.
+			 */
+			'state' =>
+				'email_required',
+
+			'next_action' =>
+				'ask_customer_for_email',
+
+			'data' =>
+				array(
+					'ticket_key' =>
+						$ticket_key,
+				),
 		);
 	}
 
 	/**
-	 * Verify a ticket using the associated email address.
+	 * Verify a ticket.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Execution context.
+	 * @param array $context   Tool context.
 	 * @return array|WP_Error
 	 */
 	private static function verify_ticket(
@@ -488,23 +580,25 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$context
 	) {
 
-		$ticket_key = isset(
-			$arguments['ticket_key']
-		)
-			? strtoupper(
-				sanitize_text_field(
-					$arguments['ticket_key']
-				)
+		$ticket_key =
+			isset(
+				$arguments['ticket_key']
 			)
-			: '';
+				? strtoupper(
+					sanitize_text_field(
+						$arguments['ticket_key']
+					)
+				)
+				: '';
 
-		$email = isset(
-			$arguments['email']
-		)
-			? sanitize_email(
+		$email =
+			isset(
 				$arguments['email']
 			)
-			: '';
+				? sanitize_email(
+					$arguments['email']
+				)
+				: '';
 
 		if (
 			'' === $ticket_key ||
@@ -513,18 +607,31 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$ticket_key
 			)
 		) {
-			return new WP_Error(
-				'invalid_ticket_key',
-				'The ticket reference is invalid.'
+
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'invalid_ticket_reference',
+				'next_action' =>
+					'ask_customer_to_check_ticket_number',
 			);
 		}
 
 		if ( '' === $email ) {
+
 			return array(
-				'success'     => true,
-				'verified'    => false,
-				'status'      => 'email_required',
-				'ticket_key'  => $ticket_key,
+				'success' =>
+					true,
+				'state' =>
+					'email_required',
+				'next_action' =>
+					'ask_customer_for_email',
+				'data' =>
+					array(
+						'ticket_key' =>
+							$ticket_key,
+					),
 			);
 		}
 
@@ -534,16 +641,17 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 
 		/*
-		 * Generic failure for both nonexistent tickets and tickets
-		 * belonging to another customer.
+		 * Generic failure for nonexistent tickets.
 		 */
 		if ( ! $ticket ) {
 
 			return array(
-				'success'    => true,
-				'verified'   => false,
-				'status'     => 'not_verified',
-				'ticket_key' => $ticket_key,
+				'success' =>
+					false,
+				'state' =>
+					'not_verified',
+				'next_action' =>
+					'ask_customer_to_check_ticket_details',
 			);
 		}
 
@@ -553,8 +661,8 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 
 		/*
-		 * If the conversation has an identified customer, the ticket
-		 * must also belong to that customer.
+		 * If this conversation already has a customer identity,
+		 * the ticket must belong to that customer.
 		 */
 		if ( $customer_id > 0 ) {
 
@@ -563,16 +671,19 @@ class WP_RapidRescue_Chat_Tool_Manager {
 					$ticket->customer_id
 				) !== $customer_id
 			) {
+
 				return array(
-					'success'    => true,
-					'verified'   => false,
-					'status'     => 'not_verified',
-					'ticket_key' => $ticket_key,
+					'success' =>
+						false,
+					'state' =>
+						'not_verified',
+					'next_action' =>
+						'ask_customer_to_check_ticket_details',
 				);
 			}
 		}
 
-		$customer = null;
+		$ticket_customer = null;
 
 		if (
 			absint(
@@ -580,7 +691,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			) > 0
 		) {
 
-			$customer =
+			$ticket_customer =
 				WP_RapidRescue_Chat_Customer::get_by_id(
 					absint(
 						$ticket->customer_id
@@ -588,36 +699,28 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				);
 		}
 
-		/*
-		 * The actual authorization check.
-		 *
-		 * The ticket email must match the supplied email. If the ticket
-		 * has no stored email, the associated customer email is used for
-		 * legacy records.
-		 */
 		$email_matches =
 			WP_RapidRescue_Chat_Tool_Security::emails_match_ticket(
 				$email,
 				$ticket,
-				$customer
+				$ticket_customer
 			);
 
 		if ( ! $email_matches ) {
 
 			return array(
-				'success'    => true,
-				'verified'   => false,
-				'status'     => 'not_verified',
-				'ticket_key' => $ticket_key,
+				'success' =>
+					false,
+				'state' =>
+					'not_verified',
+				'next_action' =>
+					'ask_customer_to_check_email',
 			);
 		}
 
 		/*
-		 * The customer record is now established from the ticket.
-		 *
-		 * If this conversation did not yet have a customer, we can
-		 * safely associate it with the ticket's customer after the
-		 * email check succeeds.
+		 * If the conversation did not have a customer identity,
+		 * establish it from the verified ticket.
 		 */
 		if (
 			$customer_id < 1 &&
@@ -636,7 +739,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		}
 
 		/*
-		 * Verify the ticket for this tool execution context.
+		 * Mark the ticket verified for this tool execution.
 		 */
 		$context =
 			WP_RapidRescue_Chat_Tool_Security::verify_ticket_context(
@@ -644,41 +747,47 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$context
 			);
 
-		/*
-		 * Only now may private ticket fields be returned.
-		 */
 		return array(
-			'success'    => true,
-			'verified'   => true,
-			'status'     => 'verified',
-			'ticket_key' => $ticket_key,
-			'ticket'     =>
-				WP_RapidRescue_Chat_Tool_Security::ticket_to_safe_array(
-					$ticket
+			'success' =>
+				true,
+
+			'state' =>
+				'verified',
+
+			'next_action' =>
+				'provide_ticket_information',
+
+			'data' =>
+				array(
+					'ticket' =>
+						WP_RapidRescue_Chat_Tool_Security::ticket_to_safe_array(
+							$ticket
+						),
 				),
-			'customer_id' => $customer_id,
-			'context'     => array(
-				'verified_ticket_keys' =>
-					isset(
-						$context['verified_ticket_keys']
-					) &&
-					is_array(
-						$context['verified_ticket_keys']
-					)
-						? $context['verified_ticket_keys']
-						: array(),
-			),
+
+			'customer_id' =>
+				$customer_id,
+
+			'context' =>
+				array(
+					'verified_ticket_keys' =>
+						isset(
+							$context['verified_ticket_keys']
+						) &&
+						is_array(
+							$context['verified_ticket_keys']
+						)
+							? $context['verified_ticket_keys']
+							: array(),
+				),
 		);
 	}
 
 	/**
-	 * Create a new support ticket.
-	 *
-	 * The AI cannot authorize ticket creation by itself.
-	 * PHP must provide explicit_ticket_confirmation in the context.
+	 * Create a support ticket.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param array $context   Execution context.
+	 * @param array $context   Tool context.
 	 * @return array|WP_Error
 	 */
 	private static function create_ticket(
@@ -691,55 +800,72 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$context
 			)
 		) {
-			return new WP_Error(
-				'ticket_creation_not_authorized',
-				'Ticket creation has not been authorized by the application.'
+
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'creation_not_authorized',
+				'next_action' =>
+					'ask_customer_for_confirmation',
 			);
 		}
 
-		$conversation_id = absint(
-			isset( $context['conversation_id'] )
-				? $context['conversation_id']
-				: 0
-		);
+		$conversation_id =
+			absint(
+				isset(
+					$context['conversation_id']
+				)
+					? $context['conversation_id']
+					: 0
+			);
 
 		$customer_id =
 			WP_RapidRescue_Chat_Tool_Security::get_customer_id(
 				$context
 			);
 
-		$subject = isset(
-			$arguments['subject']
-		)
-			? sanitize_text_field(
+		$subject =
+			isset(
 				$arguments['subject']
 			)
-			: '';
+				? sanitize_text_field(
+					$arguments['subject']
+				)
+				: '';
 
-		$summary = isset(
-			$arguments['summary']
-		)
-			? sanitize_textarea_field(
+		$summary =
+			isset(
 				$arguments['summary']
 			)
-			: '';
+				? sanitize_textarea_field(
+					$arguments['summary']
+				)
+				: '';
 
-		$priority = isset(
-			$arguments['priority']
-		)
-			? sanitize_key(
+		$priority =
+			isset(
 				$arguments['priority']
 			)
-			: 'normal';
+				? sanitize_key(
+					$arguments['priority']
+				)
+				: 'normal';
 
 		if ( '' === $subject ) {
-			$subject = 'Customer Support Request';
+			$subject =
+				'Customer Support Request';
 		}
 
 		if ( '' === trim( $summary ) ) {
-			return new WP_Error(
-				'invalid_ticket_summary',
-				'A ticket summary is required.'
+
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'invalid_request',
+				'next_action' =>
+					'provide_ticket_summary',
 			);
 		}
 
@@ -755,14 +881,10 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				true
 			)
 		) {
-			$priority = 'normal';
+			$priority =
+				'normal';
 		}
 
-		/*
-		 * PHP creates the ticket.
-		 *
-		 * The AI never supplies a ticket number.
-		 */
 		$result =
 			WP_RapidRescue_Chat_Ticket::create_from_conversation(
 				$conversation_id,
@@ -774,35 +896,64 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 
 		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
 
-		if ( empty( $result['ticket_key'] ) ) {
-			return new WP_Error(
-				'ticket_creation_unconfirmed',
-				'The ticket was not successfully confirmed after creation.'
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'creation_failed',
+				'next_action' =>
+					'tell_customer_creation_failed',
+				'error' =>
+					$result->get_error_message(),
 			);
 		}
 
-		/*
-		 * Only return the minimum information required by the AI
-		 * to truthfully tell the customer that the ticket exists.
-		 */
-		return array(
-			'success'        => true,
-			'created'        => ! empty(
-				$result['created']
-			),
-			'already_exists' => ! empty(
-				$result['already_exists']
-			),
-			'ticket_id'      => absint(
-				$result['ticket_id']
-			),
-			'ticket_key'     => sanitize_text_field(
+		if (
+			empty(
 				$result['ticket_key']
-			),
-			'status'         => 'open',
+			)
+		) {
+
+			return array(
+				'success' =>
+					false,
+				'state' =>
+					'creation_unconfirmed',
+				'next_action' =>
+					'tell_customer_creation_failed',
+			);
+		}
+
+		return array(
+			'success' =>
+				true,
+
+			'state' =>
+				'created',
+
+			'next_action' =>
+				'tell_customer_ticket_created',
+
+			'ticket_id' =>
+				absint(
+					$result['ticket_id']
+				),
+
+			'ticket_key' =>
+				sanitize_text_field(
+					$result['ticket_key']
+				),
+
+			'created' =>
+				! empty(
+					$result['created']
+				),
+
+			'already_exists' =>
+				! empty(
+					$result['already_exists']
+				),
 		);
 	}
 }
