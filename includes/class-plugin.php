@@ -72,6 +72,24 @@ class WP_RapidRescue_Chat_Plugin {
 			)
 		);
 
+		/*
+		 * Process admin POST actions before WordPress starts
+		 * rendering the admin page.
+		 *
+		 * This is intentionally registered on admin_init rather
+		 * than processing POST data inside the page renderer.
+		 * Redirects therefore happen before menu-header.php or
+		 * any other admin HTML has been sent.
+		 */
+		add_action(
+			'admin_init',
+			array(
+				$this,
+				'handle_admin_post_actions',
+			),
+			1
+		);
+
 		add_action(
 			'admin_enqueue_scripts',
 			array(
@@ -167,6 +185,425 @@ class WP_RapidRescue_Chat_Plugin {
 	}
 
 	/**
+	 * Process admin POST actions before admin page output.
+	 *
+	 * @return void
+	 */
+	public function handle_admin_post_actions() {
+
+		if ( 'POST' !== strtoupper( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		/*
+		 * Conversation deletion.
+		 */
+		$conversation_action = '';
+
+		if ( isset( $_POST['wp_rapidrescue_conversation_action'] ) ) {
+			$conversation_action = sanitize_key(
+				wp_unslash(
+					$_POST['wp_rapidrescue_conversation_action']
+				)
+			);
+		}
+
+		if ( 'delete_conversation' === $conversation_action ) {
+			$this->handle_admin_delete_conversation();
+			return;
+		}
+
+		/*
+		 * Ticket actions.
+		 */
+		$ticket_action = '';
+
+		if ( isset( $_POST['wp_rapidrescue_ticket_action'] ) ) {
+			$ticket_action = sanitize_key(
+				wp_unslash(
+					$_POST['wp_rapidrescue_ticket_action']
+				)
+			);
+		}
+
+		if ( 'delete_ticket' === $ticket_action ) {
+			$this->handle_admin_delete_ticket();
+			return;
+		}
+
+		if ( 'update_ticket' === $ticket_action ) {
+			$this->handle_admin_update_ticket();
+			return;
+		}
+	}
+
+	/**
+	 * Delete a conversation and its associated data.
+	 *
+	 * @return void
+	 */
+	private function handle_admin_delete_conversation() {
+
+		check_admin_referer(
+			'wp_rapidrescue_delete_conversation',
+			'wp_rapidrescue_conversation_nonce'
+		);
+
+		$conversation_id = isset( $_POST['conversation_id'] )
+			? absint( $_POST['conversation_id'] )
+			: 0;
+
+		if ( $conversation_id < 1 ) {
+			wp_die(
+				esc_html__(
+					'Invalid conversation.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		$conversation =
+			WP_RapidRescue_Chat_Conversation::get_by_id(
+				$conversation_id
+			);
+
+		if ( ! $conversation ) {
+			wp_die(
+				esc_html__(
+					'The requested conversation could not be found.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		global $wpdb;
+
+		$conversation_table =
+			$wpdb->prefix . 'rr_conversations';
+
+		$messages_table =
+			$wpdb->prefix . 'rr_messages';
+
+		$tickets_table =
+			$wpdb->prefix . 'rr_tickets';
+
+		/*
+		 * Delete all tickets associated with the conversation.
+		 *
+		 * Tickets are deleted first so no ticket remains attached
+		 * to a conversation that no longer exists.
+		 */
+		$tickets_deleted = $wpdb->delete(
+			$tickets_table,
+			array(
+				'conversation_id' => $conversation_id,
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $tickets_deleted ) {
+			wp_die(
+				esc_html__(
+					'The conversation could not be deleted because its tickets could not be removed.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		/*
+		 * Delete all messages belonging to the conversation.
+		 */
+		$messages_deleted = $wpdb->delete(
+			$messages_table,
+			array(
+				'conversation_id' => $conversation_id,
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $messages_deleted ) {
+			wp_die(
+				esc_html__(
+					'The conversation could not be deleted because its messages could not be removed.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		/*
+		 * Delete the conversation itself.
+		 */
+		$conversation_deleted = $wpdb->delete(
+			$conversation_table,
+			array(
+				'id' => $conversation_id,
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $conversation_deleted ) {
+			wp_die(
+				esc_html__(
+					'The conversation could not be deleted.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		/*
+		 * Redirect before any admin page output has occurred.
+		 */
+		$redirect_url = add_query_arg(
+			array(
+				'page'    => 'wp-rapidrescue-conversations',
+				'deleted' => '1',
+			),
+			admin_url( 'admin.php' )
+		);
+
+		wp_safe_redirect( $redirect_url );
+		exit;
+	}
+
+	/**
+	 * Delete a ticket.
+	 *
+	 * @return void
+	 */
+	private function handle_admin_delete_ticket() {
+
+		check_admin_referer(
+			'wp_rapidrescue_delete_ticket',
+			'wp_rapidrescue_ticket_delete_nonce'
+		);
+
+		$ticket_id = isset( $_POST['ticket_id'] )
+			? absint( $_POST['ticket_id'] )
+			: 0;
+
+		if ( $ticket_id < 1 ) {
+			wp_die(
+				esc_html__(
+					'Invalid ticket.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		$ticket =
+			WP_RapidRescue_Chat_Ticket::get_by_id(
+				$ticket_id
+			);
+
+		if ( ! $ticket ) {
+			wp_die(
+				esc_html__(
+					'The requested ticket could not be found.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		/*
+		 * Clear the conversation's active ticket pointer when
+		 * the deleted ticket is currently active.
+		 */
+		if ( ! empty( $ticket->conversation_id ) ) {
+
+			$conversation_id =
+				absint(
+					$ticket->conversation_id
+				);
+
+			$active_ticket_key =
+				WP_RapidRescue_Chat_Conversation::get_active_ticket_key(
+					$conversation_id
+				);
+
+			if (
+				'' !== $active_ticket_key &&
+				0 === strcasecmp(
+					$active_ticket_key,
+					$ticket->ticket_key
+				)
+			) {
+				WP_RapidRescue_Chat_Conversation::clear_active_ticket(
+					$conversation_id
+				);
+			}
+		}
+
+		global $wpdb;
+
+		$table =
+			$wpdb->prefix . 'rr_tickets';
+
+		$deleted = $wpdb->delete(
+			$table,
+			array(
+				'id' => $ticket_id,
+			),
+			array(
+				'%d',
+			)
+		);
+
+		if ( false === $deleted ) {
+			wp_die(
+				esc_html__(
+					'The ticket could not be deleted.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		/*
+		 * Redirect before any admin page output has occurred.
+		 */
+		$redirect_url = add_query_arg(
+			array(
+				'page'    => 'wp-rapidrescue-tickets',
+				'deleted' => '1',
+			),
+			admin_url( 'admin.php' )
+		);
+
+		wp_safe_redirect( $redirect_url );
+		exit;
+	}
+
+	/**
+	 * Update a ticket's status and priority.
+	 *
+	 * @return void
+	 */
+	private function handle_admin_update_ticket() {
+
+		check_admin_referer(
+			'wp_rapidrescue_update_ticket',
+			'wp_rapidrescue_ticket_nonce'
+		);
+
+		$ticket_id = isset( $_POST['ticket_id'] )
+			? absint( $_POST['ticket_id'] )
+			: 0;
+
+		$status = isset( $_POST['status'] )
+			? sanitize_key(
+				wp_unslash(
+					$_POST['status']
+				)
+			)
+			: '';
+
+		$priority = isset( $_POST['priority'] )
+			? sanitize_key(
+				wp_unslash(
+					$_POST['priority']
+				)
+			)
+			: '';
+
+		if ( $ticket_id < 1 ) {
+			wp_die(
+				esc_html__(
+					'Invalid ticket.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		$ticket =
+			WP_RapidRescue_Chat_Ticket::get_by_id(
+				$ticket_id
+			);
+
+		if ( ! $ticket ) {
+			wp_die(
+				esc_html__(
+					'The requested ticket could not be found.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		$allowed_statuses = array(
+			'open',
+			'in_progress',
+			'waiting_customer',
+			'resolved',
+			'closed',
+		);
+
+		$allowed_priorities = array(
+			'low',
+			'normal',
+			'high',
+			'urgent',
+		);
+
+		if ( ! in_array( $status, $allowed_statuses, true ) ) {
+			wp_die(
+				esc_html__(
+					'Invalid ticket status.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		if ( ! in_array( $priority, $allowed_priorities, true ) ) {
+			wp_die(
+				esc_html__(
+					'Invalid ticket priority.',
+					'wp-rapidrescue-chat'
+				)
+			);
+		}
+
+		$result =
+			WP_RapidRescue_Chat_Ticket::update(
+				$ticket_id,
+				'',
+				'',
+				$status,
+				$priority
+			);
+
+		if ( is_wp_error( $result ) ) {
+			wp_die(
+				esc_html(
+					$result->get_error_message()
+				)
+			);
+		}
+
+		/*
+		 * Redirect before any admin page output has occurred.
+		 */
+		$redirect_url = add_query_arg(
+			array(
+				'page'      => 'wp-rapidrescue-tickets',
+				'ticket_id' => $ticket_id,
+				'updated'   => '1',
+			),
+			admin_url( 'admin.php' )
+		);
+
+		wp_safe_redirect( $redirect_url );
+		exit;
+	}
+
+	/**
 	 * Register plugin admin menu and submenus.
 	 *
 	 * @return void
@@ -191,9 +628,6 @@ class WP_RapidRescue_Chat_Plugin {
 
 		/*
 		 * Dashboard.
-		 *
-		 * Re-register the same slug as a submenu so the top-level
-		 * menu has a proper Dashboard entry.
 		 */
 		add_submenu_page(
 			'wp-rapidrescue-chat',
@@ -253,13 +687,7 @@ class WP_RapidRescue_Chat_Plugin {
 		);
 
 		/*
-		 * Knowledge Base is registered by class-knowledge.php with:
-		 *
-		 * show_in_menu => wp-rapidrescue-chat
-		 *
-		 * Therefore WordPress automatically places it underneath
-		 * this top-level menu. We intentionally do not register it
-		 * again here.
+		 * Knowledge Base is registered by class-knowledge.php.
 		 */
 	}
 
