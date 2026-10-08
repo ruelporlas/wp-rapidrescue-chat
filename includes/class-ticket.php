@@ -27,6 +27,116 @@ class WP_RapidRescue_Chat_Ticket {
 	}
 
 	/**
+	 * Normalize human-readable ticket text.
+	 *
+	 * This prevents AI-generated formatting artifacts such as:
+	 * - \@ in email addresses.
+	 * - HTML entities such as &#x9;.
+	 * - literal tabs.
+	 * - excessive whitespace.
+	 * - excessive blank lines.
+	 *
+	 * @param string $text Text to normalize.
+	 * @return string
+	 */
+	private static function normalize_text( $text ) {
+
+		$text = (string) $text;
+
+		if ( '' === $text ) {
+			return '';
+		}
+
+		/*
+		 * Decode HTML entities that may have been introduced by the
+		 * AI or by an intermediate formatting layer.
+		 */
+		$text = html_entity_decode(
+			$text,
+			ENT_QUOTES | ENT_HTML5,
+			'UTF-8'
+		);
+
+		/*
+		 * Remove backslash escaping that should not appear in normal
+		 * human-readable ticket text.
+		 *
+		 * In particular, some AI responses may produce:
+		 * ruelporlas\@gmail.com
+		 *
+		 * We only remove the backslash when it precedes an @ symbol.
+		 */
+		$text = preg_replace(
+			'/\\\\@/',
+			'@',
+			$text
+		);
+
+		/*
+		 * Convert tabs and non-breaking spaces into normal spaces.
+		 */
+		$text = str_replace(
+			array(
+				"\t",
+				"\xC2\xA0",
+			),
+			' ',
+			$text
+		);
+
+		/*
+		 * Normalize Windows and Mac line endings.
+		 */
+		$text = str_replace(
+			array(
+				"\r\n",
+				"\r",
+			),
+			"\n",
+			$text
+		);
+
+		/*
+		 * Remove trailing whitespace from each line.
+		 */
+		$text = preg_replace(
+			'/[ \t]+$/m',
+			'',
+			$text
+		);
+
+		/*
+		 * Collapse runs of horizontal whitespace.
+		 */
+		$text = preg_replace(
+			'/[ ]{2,}/',
+			' ',
+			$text
+		);
+
+		/*
+		 * Remove spaces immediately around line breaks.
+		 */
+		$text = preg_replace(
+			'/ *\n */',
+			"\n",
+			$text
+		);
+
+		/*
+		 * Collapse excessive blank lines while preserving normal
+		 * paragraph separation.
+		 */
+		$text = preg_replace(
+			"/\n{3,}/",
+			"\n\n",
+			$text
+		);
+
+		return trim( $text );
+	}
+
+	/**
 	 * Extract a ticket key from a customer message.
 	 *
 	 * @param string $message Customer message.
@@ -116,8 +226,13 @@ class WP_RapidRescue_Chat_Ticket {
 
 		global $wpdb;
 
-		$subject = sanitize_text_field( $subject );
-		$summary = sanitize_textarea_field( $summary );
+		$subject = self::normalize_text(
+			sanitize_text_field( $subject )
+		);
+
+		$summary = self::normalize_text(
+			sanitize_textarea_field( $summary )
+		);
 
 		$customer_id = absint( $customer_id );
 
@@ -179,16 +294,16 @@ class WP_RapidRescue_Chat_Ticket {
 		$result = $wpdb->insert(
 			self::table(),
 			array(
-				'ticket_key'     => '',
-				'customer_id'    => $customer_id,
-				'customer_email' => $customer_email,
-				'conversation_id'=> $conversation_id,
-				'subject'        => $subject,
-				'summary'        => $summary,
-				'status'         => 'open',
-				'priority'       => $priority,
-				'created_at'     => $now,
-				'updated_at'     => $now,
+				'ticket_key'      => '',
+				'customer_id'     => $customer_id,
+				'customer_email'  => $customer_email,
+				'conversation_id' => $conversation_id,
+				'subject'         => $subject,
+				'summary'         => $summary,
+				'status'          => 'open',
+				'priority'        => $priority,
+				'created_at'      => $now,
+				'updated_at'      => $now,
 			),
 			array(
 				'%s',
@@ -374,8 +489,8 @@ class WP_RapidRescue_Chat_Ticket {
 			'created'        => true,
 			'already_exists' => false,
 			'ticket_id'     => (int) $ticket->id,
-			'ticket_key'    => $ticket->ticket_key,
-			'ticket'        => $ticket,
+			'ticket_key'     => $ticket->ticket_key,
+			'ticket'         => $ticket,
 		);
 	}
 
@@ -717,8 +832,8 @@ class WP_RapidRescue_Chat_Ticket {
 		$data    = array();
 		$formats = array();
 
-		$subject = sanitize_text_field(
-			$subject
+		$subject = self::normalize_text(
+			sanitize_text_field( $subject )
 		);
 
 		if ( '' !== $subject ) {
@@ -726,8 +841,8 @@ class WP_RapidRescue_Chat_Ticket {
 			$formats[]       = '%s';
 		}
 
-		$summary = sanitize_textarea_field(
-			$summary
+		$summary = self::normalize_text(
+			sanitize_textarea_field( $summary )
 		);
 
 		if ( '' !== trim( $summary ) ) {
@@ -831,4 +946,4 @@ class WP_RapidRescue_Chat_Ticket {
 			''
 		);
 	}
-} 
+}
