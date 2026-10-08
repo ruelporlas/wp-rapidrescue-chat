@@ -16,11 +16,6 @@ class WP_RapidRescue_Chat_Plugin {
 
 	private static $instance = null;
 
-	/**
-	 * Get plugin instance.
-	 *
-	 * @return self
-	 */
 	public static function instance() {
 
 		if ( null === self::$instance ) {
@@ -30,26 +25,14 @@ class WP_RapidRescue_Chat_Plugin {
 		return self::$instance;
 	}
 
-	/**
-	 * Constructor.
-	 */
 	private function __construct() {
 
 		$this->load_dependencies();
 
-		/*
-		 * Create/update plugin database tables.
-		 */
 		WP_RapidRescue_Chat_Conversation::create_tables();
 		WP_RapidRescue_Chat_Customer::create_table();
 		WP_RapidRescue_Chat_Ticket::create_table();
 
-		/*
-		 * Initialize the provider-independent AI tool system.
-		 *
-		 * Tools are the application/security boundary between the AI
-		 * provider and WordPress business data.
-		 */
 		WP_RapidRescue_Chat_Tool_Manager::init();
 
 		add_action(
@@ -103,72 +86,68 @@ class WP_RapidRescue_Chat_Plugin {
 		WP_RapidRescue_Chat_Chat_Widget::init();
 	}
 
-	/**
-	 * Load plugin dependencies.
-	 *
-	 * @return void
-	 */
-private function load_dependencies() {
+	private function load_dependencies() {
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-settings.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-settings.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-debug.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-debug.php';
 
-	WP_RapidRescue_Chat_Debug::init();
+		WP_RapidRescue_Chat_Debug::init();
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-knowledge.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-knowledge.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-conversation.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-conversation.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-customer.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-customer.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-ticket.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-ticket.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-escalation.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-escalation.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/tools/class-tool-security.php';
+		/*
+		 * Deterministic application decision engine.
+		 */
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-control-engine.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/tools/class-tool-manager.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/tools/class-tool-security.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/ai/class-provider.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/tools/class-tool-manager.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/ai/class-openai.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/ai/class-provider.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/ai/class-gemini.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/ai/class-openai.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-ai.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/ai/class-gemini.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'includes/class-rest-api.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-ai.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'public/class-chat-widget.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'includes/class-rest-api.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'admin/class-conversations.php';
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'public/class-chat-widget.php';
 
-	require_once WP_RAPIDRESCUE_CHAT_PATH .
-		'admin/class-tickets.php';
-}
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'admin/class-conversations.php';
 
-	/** 
-	 * Register the main plugin admin menu.
-	 *
-	 * @return void
-	 */
+		require_once WP_RAPIDRESCUE_CHAT_PATH .
+			'admin/class-tickets.php';
+	}
+
 	public function register_admin_menu() {
 
 		add_menu_page(
@@ -178,264 +157,32 @@ private function load_dependencies() {
 			'wp-rapidrescue-chat',
 			array(
 				$this,
-				'render_dashboard',
+				'render_admin_page',
 			),
 			'dashicons-format-chat',
-			26
-		);
-
-		add_submenu_page(
-			'wp-rapidrescue-chat',
-			'Dashboard',
-			'Dashboard',
-			'manage_options',
-			'wp-rapidrescue-chat',
-			array(
-				$this,
-				'render_dashboard',
-			)
-		);
-
-		add_submenu_page(
-			'wp-rapidrescue-chat',
-			'Conversations',
-			'Conversations',
-			'manage_options',
-			'wp-rapidrescue-conversations',
-			array(
-				'WP_RapidRescue_Chat_Conversations_Admin',
-				'render',
-			)
-		);
-
-		add_submenu_page(
-			'wp-rapidrescue-chat',
-			'Tickets',
-			'Tickets',
-			'manage_options',
-			'wp-rapidrescue-tickets',
-			array(
-				'WP_RapidRescue_Chat_Tickets_Admin',
-				'render',
-			)
-		);
-
-		add_submenu_page(
-			'wp-rapidrescue-chat',
-			'Settings',
-			'Settings',
-			'manage_options',
-			'wp-rapidrescue-chat-settings',
-			array(
-				$this,
-				'render_settings_page',
-			)
+			58
 		);
 	}
 
-	/**
-	 * Render the plugin dashboard.
-	 *
-	 * @return void
-	 */
-	public function render_dashboard() {
+	public function render_admin_page() {
 
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
-
-		?>
-		<div class="wrap">
-
-			<h1>WP RapidRescue Chat</h1>
-
-			<p>
-				Manage your AI assistant, business knowledge,
-				conversations, and customer support workflow.
-			</p>
-
-			<div
-				style="
-					display: grid;
-					grid-template-columns:
-						repeat(auto-fit, minmax(240px, 1fr));
-					gap: 20px;
-					max-width: 1100px;
-					margin-top: 25px;
-				"
-			>
-
-				<div
-					style="
-						background: #fff;
-						border: 1px solid #dcdcde;
-						border-radius: 8px;
-						padding: 22px;
-					"
-				>
-					<h2>AI Assistant</h2>
-
-					<p>
-						Configure the AI provider and define how
-						your assistant should behave.
-					</p>
-
-					<p>
-						<a
-							class="button button-primary"
-							href="<?php echo esc_url(
-								admin_url(
-									'admin.php?page=wp-rapidrescue-chat-settings'
-								)
-							); ?>"
-						>
-							Configure AI
-						</a>
-					</p>
-				</div>
-
-				<div
-					style="
-						background: #fff;
-						border: 1px solid #dcdcde;
-						border-radius: 8px;
-						padding: 22px;
-					"
-				>
-					<h2>Knowledge Base</h2>
-
-					<p>
-						Add the business information the AI is
-						allowed to use when answering customers.
-					</p>
-
-					<p>
-						<a
-							class="button"
-							href="<?php echo esc_url(
-								admin_url(
-									'edit.php?post_type=rr_knowledge'
-								)
-							); ?>"
-						>
-							Manage Knowledge
-						</a>
-					</p>
-				</div>
-
-				<div
-					style="
-						background: #fff;
-						border: 1px solid #dcdcde;
-						border-radius: 8px;
-						padding: 22px;
-					"
-				>
-					<h2>Conversations</h2>
-
-					<p>
-						Review conversations between visitors and
-						the AI assistant.
-					</p>
-
-					<p>
-						<a
-							class="button"
-							href="<?php echo esc_url(
-								admin_url(
-									'admin.php?page=wp-rapidrescue-conversations'
-								)
-							); ?>"
-						>
-							View Conversations
-						</a>
-					</p>
-				</div>
-
-			</div>
-
-		</div>
-		<?php
+		echo '<div class="wrap">';
+		echo '<h1>WP RapidRescue Chat</h1>';
+		echo '<p>Use the submenu pages to manage settings, conversations, tickets, and business knowledge.</p>';
+		echo '</div>';
 	}
 
-	/**
-	 * Render the settings page.
-	 *
-	 * @return void
-	 */
-	public function render_settings_page() {
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
-
-		?>
-		<div class="wrap">
-
-			<h1>WP RapidRescue Chat Settings</h1>
-
-			<form method="post" action="options.php">
-
-				<?php
-
-				settings_fields(
-					'wp_rapidrescue_chat_settings_group'
-				);
-
-				do_settings_sections(
-					'wp-rapidrescue-chat'
-				);
-
-				submit_button();
-
-				?>
-
-			</form>
-
-			<div class="rr-ai-connection-test">
-
-				<h2>AI Connection Test</h2>
-
-				<p>
-					Test the currently selected AI provider using
-					a simple server-side request.
-				</p>
-
-				<p>
-					<button
-						type="button"
-						class="button button-secondary"
-						id="wp-rapidrescue-test-ai-connection"
-					>
-						Test AI Connection
-					</button>
-				</p>
-
-				<div
-					id="wp-rapidrescue-ai-test-result"
-					role="status"
-					aria-live="polite"
-				></div>
-
-			</div>
-
-		</div>
-		<?php
-	}
-
-	/**
-	 * Test the configured AI connection.
-	 *
-	 * @return void
-	 */
 	public function test_ai_connection() {
 
-		if ( ! current_user_can( 'manage_options' ) ) {
-
+		if (
+			! current_user_can(
+				'manage_options'
+			)
+		) {
 			wp_send_json_error(
 				array(
 					'message' =>
-						'You do not have permission to perform this test.',
+						'You are not allowed to perform this action.',
 				),
 				403
 			);
@@ -446,12 +193,30 @@ private function load_dependencies() {
 			'nonce'
 		);
 
-		$test_message =
-			'Reply with exactly: Connection successful.';
+		$provider_id =
+			WP_RapidRescue_Chat_Settings::get(
+				'ai_provider',
+				'openai'
+			);
+
+		$provider =
+			WP_RapidRescue_Chat_AI::get_provider(
+				$provider_id
+			);
+
+		if ( is_wp_error( $provider ) ) {
+
+			wp_send_json_error(
+				array(
+					'message' =>
+						$provider->get_error_message(),
+				)
+			);
+		}
 
 		$response =
-			WP_RapidRescue_Chat_AI::respond(
-				$test_message
+			$provider->respond(
+				'Respond with exactly: Connection successful.'
 			);
 
 		if ( is_wp_error( $response ) ) {
@@ -460,24 +225,21 @@ private function load_dependencies() {
 				array(
 					'message' =>
 						$response->get_error_message(),
-				),
-				400
+				)
 			);
 		}
 
 		wp_send_json_success(
 			array(
-				'message'  =>
+				'message' =>
 					'AI connection successful.',
-				'response' =>
-					isset( $response['text'] )
-						? $response['text']
-						: '',
+
 				'provider' =>
 					isset( $response['provider'] )
 						? $response['provider']
-						: '',
-				'model'    =>
+						: $provider_id,
+
+				'model' =>
 					isset( $response['model'] )
 						? $response['model']
 						: '',
@@ -485,11 +247,6 @@ private function load_dependencies() {
 		);
 	}
 
-	/**
-	 * Plugin activation.
-	 *
-	 * @return void
-	 */
 	public static function activate() {
 
 		$defaults =
@@ -527,11 +284,6 @@ private function load_dependencies() {
 		);
 	}
 
-	/**
-	 * Plugin deactivation.
-	 *
-	 * @return void
-	 */
 	public static function deactivate() {
 		// No cleanup is performed on deactivation.
 	}

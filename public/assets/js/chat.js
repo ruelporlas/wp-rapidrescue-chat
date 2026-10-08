@@ -1,6 +1,18 @@
 document.addEventListener('DOMContentLoaded', function () {
 	'use strict';
 
+	const widget = document.querySelector(
+		'#wp-rapidrescue-chat'
+	);
+
+	const launcher = document.querySelector(
+		'#wp-rapidrescue-chat-launcher'
+	);
+
+	const closeButton = document.querySelector(
+		'.wp-rapidrescue-chat__close'
+	);
+
 	const form = document.querySelector(
 		'#wp-rapidrescue-chat-form'
 	);
@@ -13,7 +25,14 @@ document.addEventListener('DOMContentLoaded', function () {
 		'#wp-rapidrescue-chat-messages'
 	);
 
-	if (!form || !input || !messages) {
+	if (
+		!widget ||
+		!launcher ||
+		!closeButton ||
+		!form ||
+		!input ||
+		!messages
+	) {
 		return;
 	}
 
@@ -27,6 +46,129 @@ document.addEventListener('DOMContentLoaded', function () {
 		form.querySelector(
 			'.wp-rapidrescue-chat__send'
 		);
+
+	let isOpen = false;
+
+	/*
+	 * The widget intentionally starts closed.
+	 */
+	widget.classList.remove(
+		'wp-rapidrescue-chat--open'
+	);
+
+	widget.setAttribute(
+		'aria-hidden',
+		'true'
+	);
+
+	launcher.setAttribute(
+		'aria-expanded',
+		'false'
+	);
+
+	function openChat() {
+
+		if (isOpen) {
+			return;
+		}
+
+		isOpen = true;
+
+		widget.classList.add(
+			'wp-rapidrescue-chat--open'
+		);
+
+		widget.setAttribute(
+			'aria-hidden',
+			'false'
+		);
+
+		launcher.setAttribute(
+			'aria-expanded',
+			'true'
+		);
+
+		launcher.setAttribute(
+			'aria-label',
+			'Close chat'
+		);
+
+		requestAnimationFrame(
+			function () {
+				input.focus();
+				scrollToBottom();
+			}
+		);
+	}
+
+	function closeChat() {
+
+		if (!isOpen) {
+			return;
+		}
+
+		isOpen = false;
+
+		widget.classList.remove(
+			'wp-rapidrescue-chat--open'
+		);
+
+		widget.setAttribute(
+			'aria-hidden',
+			'true'
+		);
+
+		launcher.setAttribute(
+			'aria-expanded',
+			'false'
+		);
+
+		launcher.setAttribute(
+			'aria-label',
+			'Open chat'
+		);
+
+		/*
+		 * Remove focus from the textarea before closing so mobile
+		 * browsers can dismiss the virtual keyboard.
+		 */
+		if (document.activeElement === input) {
+			input.blur();
+		}
+	}
+
+	launcher.addEventListener(
+		'click',
+		function () {
+
+			if (isOpen) {
+				closeChat();
+			} else {
+				openChat();
+			}
+		}
+	);
+
+	closeButton.addEventListener(
+		'click',
+		function () {
+			closeChat();
+		}
+	);
+
+	document.addEventListener(
+		'keydown',
+		function (event) {
+
+			if (
+				event.key === 'Escape' &&
+				isOpen
+			) {
+				closeChat();
+				launcher.focus();
+			}
+		}
+	);
 
 	input.addEventListener(
 		'keydown',
@@ -206,7 +348,9 @@ document.addEventListener('DOMContentLoaded', function () {
 							false
 						);
 
-						input.focus();
+						if (isOpen) {
+							input.focus();
+						}
 					}
 				);
 		}

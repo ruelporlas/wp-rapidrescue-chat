@@ -14,44 +14,17 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
-	/**
-	 * Gemini Interactions API endpoint.
-	 *
-	 * @var string
-	 */
 	const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-
-	/**
-	 * Maximum number of tool rounds.
-	 *
-	 * @var int
-	 */
 	const MAX_TOOL_ROUNDS = 6;
 
-	/**
-	 * Get provider ID.
-	 *
-	 * @return string
-	 */
 	public function get_id() {
 		return 'gemini';
 	}
 
-	/**
-	 * Get provider name.
-	 *
-	 * @return string
-	 */
 	public function get_name() {
 		return 'Gemini';
 	}
 
-	/**
-	 * Basic provider response.
-	 *
-	 * @param string $message User message.
-	 * @return array|WP_Error
-	 */
 	public function respond( $message ) {
 		return $this->respond_with_tools(
 			$message,
@@ -62,7 +35,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 	/**
 	 * Respond using Gemini function calling.
 	 *
-	 * @param string $message User message.
+	 * @param string $message Message.
 	 * @param array  $context Runtime context.
 	 * @return array|WP_Error
 	 */
@@ -71,15 +44,17 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		$context = array()
 	) {
 
-		$api_key = WP_RapidRescue_Chat_Settings::get(
-			'gemini_api_key',
-			''
-		);
+		$api_key =
+			WP_RapidRescue_Chat_Settings::get(
+				'gemini_api_key',
+				''
+			);
 
-		$model = WP_RapidRescue_Chat_Settings::get(
-			'gemini_model',
-			'gemini-3.5-flash-lite'
-		);
+		$model =
+			WP_RapidRescue_Chat_Settings::get(
+				'gemini_model',
+				'gemini-3.5-flash-lite'
+			);
 
 		if ( '' === $api_key ) {
 			return new WP_Error(
@@ -92,40 +67,69 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			$context = array();
 		}
 
-		$tools = $this->get_tools();
+		$tools =
+			$this->get_tools();
 
 		$system_instruction =
 			WP_RapidRescue_Chat_AI::get_system_instructions();
 
-		$verified_customer_id = 0;
+		$verified_customer_id =
+			isset( $context['customer_id'] )
+				? absint(
+					$context['customer_id']
+				)
+				: 0;
 
-		if ( isset( $context['customer_id'] ) ) {
-			$verified_customer_id = absint(
-				$context['customer_id']
-			);
-		}
-
-		$verified_ticket_keys = array();
-
-		if (
+		$verified_ticket_keys =
 			isset( $context['verified_ticket_keys'] ) &&
 			is_array( $context['verified_ticket_keys'] )
-		) {
-			$verified_ticket_keys = array_values(
-				array_filter(
-					array_map(
-						'sanitize_text_field',
-						$context['verified_ticket_keys']
+				? array_values(
+					array_filter(
+						array_map(
+							'sanitize_text_field',
+							$context['verified_ticket_keys']
+						)
 					)
+				)
+				: array();
+
+		$required_tool =
+			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
+				$context
+			);
+
+		/*
+		 * The Control Engine can force Gemini to call a specific
+		 * application tool. This is still AI tool calling; PHP does
+		 * not execute the tool behind Gemini's back.
+		 */
+		$generation_config = array();
+
+		if ( '' !== $required_tool ) {
+
+			$generation_config['tool_choice'] =
+				array(
+					'allowed_tools' =>
+						array(
+							'mode' =>
+								'any',
+
+							'tools' =>
+								array(
+									$required_tool,
+								),
+						),
+				);
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Control Engine requiring Gemini tool call',
+				array(
+					'tool' =>
+						$required_tool,
 				)
 			);
 		}
 
-		/*
-		 * First interaction.
-		 *
-		 * Keep the request deliberately straightforward.
-		 */
 		$request_body = array(
 			'model'              => $model,
 			'input'              => (string) $message,
@@ -134,17 +138,33 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			'store'              => true,
 		);
 
+		if ( ! empty( $generation_config ) ) {
+			$request_body['generation_config'] =
+				$generation_config;
+		}
+
 		WP_RapidRescue_Chat_Debug::ai(
 			'Gemini request prepared',
 			array(
-				'model'       => $model,
-				'input_type'  => 'string',
-				'tool_count'  => count( $tools ),
-				'endpoint'    => self::API_ENDPOINT,
+				'model' =>
+					$model,
+
+				'input_type' =>
+					'string',
+
+				'tool_count' =>
+					count( $tools ),
+
+				'required_tool' =>
+					$required_tool,
+
+				'endpoint' =>
+					self::API_ENDPOINT,
 			)
 		);
 
 		$interaction_id = '';
+		$tool_results = array();
 
 		for (
 			$round = 0;
@@ -152,11 +172,12 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			$round++
 		) {
 
-			$result = $this->request(
-				$api_key,
-				$request_body,
-				$model
-			);
+			$result =
+				$this->request(
+					$api_key,
+					$request_body,
+					$model
+				);
 
 			if ( is_wp_error( $result ) ) {
 				return $result;
@@ -170,14 +191,14 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					$result['interaction_id'];
 			}
 
-			/*
-			 * No tool call means Gemini has completed the answer.
-			 */
 			if ( empty( $result['tool_calls'] ) ) {
 
-				$text = isset( $result['text'] )
-					? trim( $result['text'] )
-					: '';
+				$text =
+					isset( $result['text'] )
+						? trim(
+							$result['text']
+						)
+						: '';
 
 				if ( '' === $text ) {
 					return new WP_Error(
@@ -187,22 +208,33 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				}
 
 				return array(
-					'text' => $text,
-					'provider' => $this->get_id(),
-					'model' => $model,
-					'response_id' => $interaction_id,
-					'customer_id' => $verified_customer_id,
-					'verified_ticket_keys' => array_values(
-						array_unique(
-							$verified_ticket_keys
-						)
-					),
+					'text' =>
+						$text,
+
+					'provider' =>
+						$this->get_id(),
+
+					'model' =>
+						$model,
+
+					'response_id' =>
+						$interaction_id,
+
+					'customer_id' =>
+						$verified_customer_id,
+
+					'verified_ticket_keys' =>
+						array_values(
+							array_unique(
+								$verified_ticket_keys
+							)
+						),
+
+					'tool_results' =>
+						$tool_results,
 				);
 			}
 
-			/*
-			 * Execute requested tools through PHP.
-			 */
 			$function_results = array();
 
 			foreach ( $result['tool_calls'] as $tool_call ) {
@@ -211,40 +243,37 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					continue;
 				}
 
-				$tool_name = isset(
-					$tool_call['name']
-				)
-					? sanitize_key(
-						$tool_call['name']
-					)
-					: '';
+				$tool_name =
+					isset( $tool_call['name'] )
+						? sanitize_key(
+							$tool_call['name']
+						)
+						: '';
 
-				$call_id = isset(
-					$tool_call['id']
-				)
-					? sanitize_text_field(
-						$tool_call['id']
-					)
-					: '';
+				$call_id =
+					isset( $tool_call['id'] )
+						? sanitize_text_field(
+							$tool_call['id']
+						)
+						: '';
 
-				$arguments = isset(
-					$tool_call['arguments']
-				)
-					? $tool_call['arguments']
-					: array();
+				$arguments =
+					isset( $tool_call['arguments'] )
+						? $tool_call['arguments']
+						: array();
 
 				if ( is_string( $arguments ) ) {
 
-					$decoded_arguments = json_decode(
-						$arguments,
-						true
-					);
+					$decoded =
+						json_decode(
+							$arguments,
+							true
+						);
 
-					$arguments = is_array(
-						$decoded_arguments
-					)
-						? $decoded_arguments
-						: array();
+					$arguments =
+						is_array( $decoded )
+							? $decoded
+							: array();
 				}
 
 				if ( ! is_array( $arguments ) ) {
@@ -261,11 +290,13 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				WP_RapidRescue_Chat_Debug::tool(
 					'Executing AI tool',
 					array(
-						'tool' => $tool_name,
+						'tool' =>
+							$tool_name,
 					)
 				);
 
-				$current_context = $context;
+				$current_context =
+					$context;
 
 				$current_context['customer_id'] =
 					$verified_customer_id;
@@ -281,15 +312,32 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 
 				if ( is_wp_error( $tool_result ) ) {
-					$tool_result = array(
-						'error' =>
-							$tool_result->get_error_message(),
-					);
+
+					$tool_result =
+						array(
+							'success' =>
+								false,
+
+							'state' =>
+								'tool_error',
+
+							'next_action' =>
+								'tool_error',
+
+							'error' =>
+								$tool_result->get_error_message(),
+						);
 				}
 
-				/*
-				 * Update trusted PHP security context.
-				 */
+				$tool_results[] =
+					array(
+						'tool' =>
+							$tool_name,
+
+						'result' =>
+							$tool_result,
+					);
+
 				if ( is_array( $tool_result ) ) {
 
 					if (
@@ -313,25 +361,20 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 					if (
 						isset(
-							$tool_result[
-								'verified_ticket_key'
-							]
+							$tool_result['verified_ticket_key']
 						)
 					) {
 
-						$returned_ticket_key =
+						$key =
 							sanitize_text_field(
 								$tool_result[
 									'verified_ticket_key'
 								]
 							);
 
-						if (
-							'' !==
-							$returned_ticket_key
-						) {
+						if ( '' !== $key ) {
 							$verified_ticket_keys[] =
-								$returned_ticket_key;
+								$key;
 						}
 					}
 
@@ -351,20 +394,17 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						foreach (
 							$tool_result[
 								'verified_ticket_keys'
-							] as $verified_key
+							] as $key
 						) {
 
-							$verified_key =
+							$key =
 								sanitize_text_field(
-									$verified_key
+									$key
 								);
 
-							if (
-								'' !==
-								$verified_key
-							) {
+							if ( '' !== $key ) {
 								$verified_ticket_keys[] =
-									$verified_key;
+									$key;
 							}
 						}
 					}
@@ -377,34 +417,43 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						);
 				}
 
-				$result_text = wp_json_encode(
-					$tool_result,
-					JSON_INVALID_UTF8_SUBSTITUTE
-				);
+				$result_text =
+					wp_json_encode(
+						$tool_result,
+						JSON_INVALID_UTF8_SUBSTITUTE
+					);
 
 				if ( false === $result_text ) {
 					$result_text =
 						'{"error":"Unable to encode tool result."}';
 				}
 
-				/*
-				 * Gemini expects the function result to reference
-				 * the original function call by call_id.
-				 */
-				$function_results[] = array(
-					'type'    => 'function_result',
-					'name'    => $tool_name,
-					'call_id' => $call_id,
-					'result'  => array(
-						array(
-							'type' => 'text',
-							'text' => $result_text,
-						),
-					),
-				);
+				$function_results[] =
+					array(
+						'type' =>
+							'function_result',
+
+						'name' =>
+							$tool_name,
+
+						'call_id' =>
+							$call_id,
+
+						'result' =>
+							array(
+								array(
+									'type' =>
+										'text',
+
+									'text' =>
+										$result_text,
+								),
+							),
+					);
 			}
 
 			if ( empty( $function_results ) ) {
+
 				return new WP_Error(
 					'gemini_empty_tool_result',
 					'Gemini requested a tool but no valid tool result was produced.'
@@ -412,21 +461,28 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			/*
-			 * Continue the existing interaction.
-			 *
-			 * Tools and system instructions must be supplied again
-			 * because interaction-scoped configuration is not carried
-			 * forward automatically.
+			 * After the required tool has executed, Gemini should
+			 * decide how to communicate the result. Do not force
+			 * another tool call.
 			 */
 			$request_body = array(
-				'model' => $model,
-				'input' => $function_results,
+				'model' =>
+					$model,
+
+				'input' =>
+					$function_results,
+
 				'previous_interaction_id' =>
 					$interaction_id,
+
 				'system_instruction' =>
 					(string) $system_instruction,
-				'tools' => $tools,
-				'store' => true,
+
+				'tools' =>
+					$tools,
+
+				'store' =>
+					true,
 			);
 		}
 
@@ -452,145 +508,93 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			return $tools;
 		}
 
-		foreach (
-			$registered_tools as $tool
-		) {
+		foreach ( $registered_tools as $tool ) {
 
 			if ( ! is_array( $tool ) ) {
 				continue;
 			}
 
-			$name = isset(
-				$tool['name']
-			)
-				? sanitize_key(
-					$tool['name']
-				)
-				: '';
+			$name =
+				isset( $tool['name'] )
+					? sanitize_key(
+						$tool['name']
+					)
+					: '';
 
 			if ( '' === $name ) {
 				continue;
 			}
 
-			$description = isset(
-				$tool['description']
-			)
-				? sanitize_text_field(
-					$tool['description']
-				)
-				: '';
+			$parameters =
+				isset( $tool['parameters'] )
+					? $tool['parameters']
+					: array();
 
-			$parameters = isset(
-				$tool['parameters']
-			)
-				? $tool['parameters']
-				: array();
-
-			/*
-			 * IMPORTANT:
-			 *
-			 * Do NOT let an empty PHP array become:
-			 *
-			 *     "properties": []
-			 *
-			 * JSON Schema expects properties to be an object.
-			 *
-			 * For a function with no arguments, the cleanest schema
-			 * is simply:
-			 *
-			 *     {"type":"object"}
-			 */
 			if (
 				! is_array( $parameters ) ||
 				empty( $parameters )
 			) {
-
-				$parameters = array(
-					'type' => 'object',
-				);
+				$parameters =
+					array(
+						'type' =>
+							'object',
+					);
 			}
 
-			/*
-			 * Ensure the schema type exists.
-			 */
 			if (
-				! isset(
-					$parameters['type']
-				)
+				! isset( $parameters['type'] )
 			) {
-
 				$parameters['type'] =
 					'object';
 			}
 
-			/*
-			 * If properties are present but empty, REMOVE them.
-			 *
-			 * This prevents PHP from producing:
-			 *
-			 *     "properties": []
-			 *
-			 * which is an array, not a JSON object.
-			 */
 			if (
-				isset(
-					$parameters['properties']
-				) &&
-				is_array(
-					$parameters['properties']
-				) &&
-				empty(
-					$parameters['properties']
-				)
+				isset( $parameters['properties'] ) &&
+				is_array( $parameters['properties'] ) &&
+				empty( $parameters['properties'] )
 			) {
-
 				unset(
 					$parameters['properties']
 				);
 			}
 
-			/*
-			 * Remove empty required arrays.
-			 */
 			if (
-				isset(
-					$parameters['required']
-				) &&
+				isset( $parameters['required'] ) &&
 				(
-					! is_array(
-						$parameters['required']
-					) ||
-					empty(
-						$parameters['required']
-					)
+					! is_array( $parameters['required'] ) ||
+					empty( $parameters['required'] )
 				)
 			) {
-
 				unset(
 					$parameters['required']
 				);
 			}
 
-			$tools[] = array(
-				'type' =>
-					'function',
+			$tools[] =
+				array(
+					'type' =>
+						'function',
 
-				'name' =>
-					$name,
+					'name' =>
+						$name,
 
-				'description' =>
-					$description,
+					'description' =>
+						isset( $tool['description'] )
+							? sanitize_text_field(
+								$tool['description']
+							)
+							: '',
 
-				'parameters' =>
-					$parameters,
-			);
+					'parameters' =>
+						$parameters,
+				);
 		}
 
 		return $tools;
 	}
 
 	/**
-	 * Send request to Gemini.
+	 * Send Gemini request.
 	 *
 	 * @param string $api_key API key.
 	 * @param array  $request_body Request body.
@@ -603,37 +607,20 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		$model
 	) {
 
-		$json_body = wp_json_encode(
-			$request_body,
-			JSON_INVALID_UTF8_SUBSTITUTE
-		);
+		$json_body =
+			wp_json_encode(
+				$request_body,
+				JSON_INVALID_UTF8_SUBSTITUTE
+			);
 
 		if ( false === $json_body ) {
 
-			$error_message =
-				function_exists(
-					'json_last_error_msg'
-				)
-					? json_last_error_msg()
-					: 'Unknown JSON encoding error.';
-
-			WP_RapidRescue_Chat_Debug::ai(
-				'Gemini JSON encoding failed',
-				array(
-					'error' => $error_message,
-				)
-			);
-
 			return new WP_Error(
 				'gemini_json_encode_failed',
-				'Gemini request could not be encoded as JSON: ' .
-				$error_message
+				'Gemini request could not be encoded as JSON.'
 			);
 		}
 
-		/*
-		 * Confirm PHP itself considers the body valid JSON.
-		 */
 		json_decode(
 			$json_body,
 			true
@@ -644,53 +631,34 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			json_last_error()
 		) {
 
-			$error_message =
-				function_exists(
-					'json_last_error_msg'
-				)
-					? json_last_error_msg()
-					: 'Unknown JSON error.';
-
-			WP_RapidRescue_Chat_Debug::ai(
-				'Gemini local JSON validation failed',
-				array(
-					'error' => $error_message,
-				)
-			);
-
 			return new WP_Error(
 				'gemini_invalid_local_json',
-				'Gemini request JSON is invalid: ' .
-				$error_message
+				'Gemini request JSON is invalid.'
 			);
 		}
 
-		$response = wp_remote_post(
-			self::API_ENDPOINT,
-			array(
-				'timeout' => 60,
-
-				'headers' => array(
-					'x-goog-api-key' =>
-						$api_key,
-
-					'Content-Type' =>
-						'application/json',
-				),
-
-				'body' => $json_body,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-
-			WP_RapidRescue_Chat_Debug::ai(
-				'Gemini HTTP request failed',
+		$response =
+			wp_remote_post(
+				self::API_ENDPOINT,
 				array(
-					'error' =>
-						$response->get_error_message(),
+					'timeout' =>
+						60,
+
+					'headers' =>
+						array(
+							'x-goog-api-key' =>
+								$api_key,
+
+							'Content-Type' =>
+								'application/json',
+						),
+
+					'body' =>
+						$json_body,
 				)
 			);
+
+		if ( is_wp_error( $response ) ) {
 
 			return new WP_Error(
 				'gemini_request_failed',
@@ -724,10 +692,11 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			)
 		);
 
-		$data = json_decode(
-			$response_body,
-			true
-		);
+		$data =
+			json_decode(
+				$response_body,
+				true
+			);
 
 		if (
 			$status_code < 200 ||
@@ -743,7 +712,6 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					$data['error']['message']
 				)
 			) {
-
 				$error_message =
 					sanitize_text_field(
 						$data['error']['message']
@@ -764,89 +732,56 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			);
 		}
 
-		$interaction_id = '';
-
-		if (
-			isset(
-				$data['id']
-			)
-		) {
-
-			$interaction_id =
-				sanitize_text_field(
+		$interaction_id =
+			isset( $data['id'] )
+				? sanitize_text_field(
 					$data['id']
-				);
-		}
+				)
+				: '';
 
 		$text = '';
-
 		$tool_calls = array();
 
-		/*
-		 * Interactions API response structure.
-		 */
 		if (
-			isset(
-				$data['steps']
-			) &&
-			is_array(
-				$data['steps']
-			)
+			isset( $data['steps'] ) &&
+			is_array( $data['steps'] )
 		) {
 
-			foreach (
-				$data['steps'] as $step
-			) {
+			foreach ( $data['steps'] as $step ) {
 
 				if ( ! is_array( $step ) ) {
 					continue;
 				}
 
-				$step_type =
-					isset(
-						$step['type']
-					)
+				$type =
+					isset( $step['type'] )
 						? sanitize_key(
 							$step['type']
 						)
 						: '';
 
-				/*
-				 * Function call.
-				 */
 				if (
 					'function_call' ===
-					$step_type
+					$type
 				) {
 
 					$name =
-						isset(
-							$step['name']
-						)
+						isset( $step['name'] )
 							? sanitize_key(
 								$step['name']
 							)
 							: '';
 
-					$call_id =
-						isset(
-							$step['id']
-						)
+					$id =
+						isset( $step['id'] )
 							? sanitize_text_field(
 								$step['id']
 							)
 							: '';
 
-					$arguments =
-						isset(
-							$step['arguments']
-						)
-							? $step['arguments']
-							: array();
-
 					if (
 						'' !== $name &&
-						'' !== $call_id
+						'' !== $id
 					) {
 
 						$tool_calls[] =
@@ -855,28 +790,25 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 									$name,
 
 								'id' =>
-									$call_id,
+									$id,
 
 								'arguments' =>
-									$arguments,
+									isset(
+										$step['arguments']
+									)
+										? $step['arguments']
+										: array(),
 							);
 					}
 
 					continue;
 				}
 
-				/*
-				 * Normal model output.
-				 */
 				if (
 					'model_output' ===
-					$step_type &&
-					isset(
-						$step['content']
-					) &&
-					is_array(
-						$step['content']
-					)
+					$type &&
+					isset( $step['content'] ) &&
+					is_array( $step['content'] )
 				) {
 
 					foreach (
@@ -884,28 +816,18 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					) {
 
 						if (
-							! is_array(
-								$content
-							)
+							! is_array( $content )
 						) {
 							continue;
 						}
 
-						$content_type =
-							isset(
-								$content['type']
-							)
-								? sanitize_key(
-									$content['type']
-								)
-								: '';
-
 						if (
+							isset( $content['type'] ) &&
 							'text' ===
-							$content_type &&
-							isset(
-								$content['text']
-							)
+								sanitize_key(
+									$content['type']
+								) &&
+							isset( $content['text'] )
 						) {
 
 							$text .=
@@ -919,9 +841,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 		return array(
 			'text' =>
-				trim(
-					$text
-				),
+				trim( $text ),
 
 			'tool_calls' =>
 				$tool_calls,
@@ -936,4 +856,4 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				$model,
 		);
 	}
-} 
+}
