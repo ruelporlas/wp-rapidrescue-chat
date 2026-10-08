@@ -2483,4 +2483,4 @@ class WP_RapidRescue_Chat_REST_API {
 			true
 		);
 	}
-}
+} 
