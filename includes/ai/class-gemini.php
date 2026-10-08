@@ -18,14 +18,17 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 	const MAX_TOOL_ROUNDS = 6;
 
 	public function get_id() {
+
 		return 'gemini';
 	}
 
 	public function get_name() {
+
 		return 'Gemini';
 	}
 
 	public function respond( $message ) {
+
 		return $this->respond_with_tools(
 			$message,
 			array()
@@ -57,6 +60,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			);
 
 		if ( '' === $api_key ) {
+
 			return new WP_Error(
 				'missing_gemini_api_key',
 				'The Gemini API key has not been configured.'
@@ -94,22 +98,15 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				: array();
 
 		/*
-		 * The Control Engine may require one specific tool on the
-		 * first provider request.
-		 *
-		 * IMPORTANT:
-		 *
-		 * This requirement is consumed after that tool is executed.
-		 * We must NOT continue forcing the same tool during the
-		 * follow-up interaction, otherwise operations such as
-		 * update_ticket could execute repeatedly.
+		 * PHP determines whether a specific tool is required.
 		 */
 		$required_tool =
 			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
 				$context
 			);
 
-		$force_required_tool = true;
+		$required_tool_pending =
+			'' !== $required_tool;
 
 		$request_body = array(
 			'model'              => $model,
@@ -119,7 +116,10 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			'store'              => true,
 		);
 
-		if ( '' !== $required_tool ) {
+		/*
+		 * Force the exact PHP-authorized tool.
+		 */
+		if ( $required_tool_pending ) {
 
 			$request_body['generation_config'] =
 				array(
@@ -162,43 +162,23 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				'required_tool' =>
 					$required_tool,
 
+				'required_tool_pending' =>
+					$required_tool_pending,
+
 				'endpoint' =>
 					self::API_ENDPOINT,
 			)
 		);
 
 		$interaction_id = '';
-		$tool_results   = array();
+
+		$tool_results = array();
 
 		for (
 			$round = 0;
 			$round < self::MAX_TOOL_ROUNDS;
 			$round++
 		) {
-
-			/*
-			 * Only the first request may be forced by the
-			 * deterministic Control Engine.
-			 *
-			 * Once a required tool has executed, the next
-			 * interaction lets Gemini respond naturally based
-			 * on the actual PHP tool result.
-			 */
-			if (
-				$round > 0 &&
-				$force_required_tool
-			) {
-
-				unset(
-					$request_body['generation_config']
-				);
-
-				$force_required_tool = false;
-
-				WP_RapidRescue_Chat_Debug::ai(
-					'Gemini required tool consumed; allowing normal follow-up response'
-				);
-			}
 
 			$result =
 				$this->request(
@@ -215,11 +195,32 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				isset( $result['interaction_id'] ) &&
 				'' !== $result['interaction_id']
 			) {
+
 				$interaction_id =
 					$result['interaction_id'];
 			}
 
+			/*
+			 * Never accept a normal text response while PHP still
+			 * requires a business action.
+			 */
 			if ( empty( $result['tool_calls'] ) ) {
+
+				if ( $required_tool_pending ) {
+
+					WP_RapidRescue_Chat_Debug::ai(
+						'Gemini attempted to finish before required tool execution',
+						array(
+							'required_tool' =>
+								$required_tool,
+						)
+					);
+
+					return new WP_Error(
+						'required_gemini_tool_not_executed',
+						'Gemini did not execute the required application action.'
+					);
+				}
 
 				$text =
 					isset( $result['text'] )
@@ -229,6 +230,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						: '';
 
 				if ( '' === $text ) {
+
 					return new WP_Error(
 						'empty_gemini_response',
 						'Gemini returned no text response.'
@@ -265,7 +267,9 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 			$function_results = array();
 
-			foreach ( $result['tool_calls'] as $tool_call ) {
+			foreach (
+				$result['tool_calls'] as $tool_call
+			) {
 
 				if ( ! is_array( $tool_call ) ) {
 					continue;
@@ -332,6 +336,9 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				$current_context['verified_ticket_keys'] =
 					$verified_ticket_keys;
 
+				$current_context['required_tool_pending'] =
+					$required_tool_pending;
+
 				$tool_result =
 					WP_RapidRescue_Chat_Tool_Manager::execute(
 						$tool_name,
@@ -367,21 +374,24 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 
 				/*
-				 * Tool execution has now consumed the first
-				 * required application action.
-				 *
-				 * Never force the same Control Engine requirement
-				 * again during this provider call.
+				 * Only actual successful PHP execution consumes
+				 * the Control Engine requirement.
 				 */
 				if (
-					'' !== $required_tool &&
-					$tool_name === $required_tool
+					$required_tool_pending &&
+					$tool_name === $required_tool &&
+					is_array( $tool_result ) &&
+					! empty(
+						$tool_result[
+							'required_tool_satisfied'
+						]
+					)
 				) {
 
-					$force_required_tool = false;
+					$required_tool_pending = false;
 
 					WP_RapidRescue_Chat_Debug::ai(
-						'Required Gemini tool executed',
+						'Gemini required tool successfully completed',
 						array(
 							'tool' =>
 								$tool_name,
@@ -405,6 +415,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						if (
 							$returned_customer_id > 0
 						) {
+
 							$verified_customer_id =
 								$returned_customer_id;
 						}
@@ -424,6 +435,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 							);
 
 						if ( '' !== $key ) {
+
 							$verified_ticket_keys[] =
 								$key;
 						}
@@ -454,6 +466,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 								);
 
 							if ( '' !== $key ) {
+
 								$verified_ticket_keys[] =
 									$key;
 							}
@@ -475,6 +488,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					);
 
 				if ( false === $result_text ) {
+
 					$result_text =
 						'{"error":"Unable to encode tool result."}';
 				}
@@ -512,11 +526,8 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			/*
-			 * The requested tool has now executed.
-			 *
-			 * The next Gemini interaction is deliberately normal.
-			 * Gemini receives the authoritative tool result and
-			 * should formulate the customer-facing response.
+			 * Continue the Gemini interaction using the authoritative
+			 * PHP tool result.
 			 */
 			$request_body = array(
 				'model' =>
@@ -537,6 +548,30 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				'store' =>
 					true,
 			);
+
+			/*
+			 * If the required action has not actually succeeded,
+			 * keep forcing the exact same action.
+			 */
+			if ( $required_tool_pending ) {
+
+				$request_body['generation_config'] =
+					array(
+						'tool_choice' =>
+							array(
+								'allowed_tools' =>
+									array(
+										'mode' =>
+											'any',
+
+										'tools' =>
+											array(
+												$required_tool,
+											),
+									),
+							),
+					);
+			}
 		}
 
 		return new WP_Error(
@@ -587,6 +622,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				! is_array( $parameters ) ||
 				empty( $parameters )
 			) {
+
 				$parameters =
 					array(
 						'type' =>
@@ -595,8 +631,11 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			if (
-				! isset( $parameters['type'] )
+				! isset(
+					$parameters['type']
+				)
 			) {
+
 				$parameters['type'] =
 					'object';
 			}
@@ -606,6 +645,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				is_array( $parameters['properties'] ) &&
 				empty( $parameters['properties'] )
 			) {
+
 				unset(
 					$parameters['properties']
 				);
@@ -618,6 +658,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					empty( $parameters['required'] )
 				)
 			) {
+
 				unset(
 					$parameters['required']
 				);
@@ -765,6 +806,7 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					$data['error']['message']
 				)
 			) {
+
 				$error_message =
 					sanitize_text_field(
 						$data['error']['message']
@@ -800,7 +842,9 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			is_array( $data['steps'] )
 		) {
 
-			foreach ( $data['steps'] as $step ) {
+			foreach (
+				$data['steps'] as $step
+			) {
 
 				if ( ! is_array( $step ) ) {
 					continue;

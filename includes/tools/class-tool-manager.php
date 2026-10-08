@@ -227,6 +227,11 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	/**
 	 * Execute a tool.
 	 *
+	 * PHP is the final authorization boundary.
+	 *
+	 * When the Control Engine requires a specific tool, that
+	 * requirement cannot be bypassed by the AI provider or model.
+	 *
 	 * @param string $tool_name Tool name.
 	 * @param array  $arguments Tool arguments.
 	 * @param array  $context   Execution context.
@@ -243,6 +248,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$tool_name = sanitize_key( $tool_name );
 
 		if ( ! isset( self::$tools[ $tool_name ] ) ) {
+
 			return new WP_Error(
 				'unknown_ai_tool',
 				'The requested AI tool is not available.'
@@ -257,49 +263,214 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			$context = array();
 		}
 
+		/*
+		 * ---------------------------------------------------------
+		 * PHP CONTROL ENGINE GATE
+		 * ---------------------------------------------------------
+		 *
+		 * The model may request a registered tool, but registration
+		 * does not mean that the tool is currently authorized.
+		 *
+		 * When a required tool is pending, only that exact tool may
+		 * execute.
+		 *
+		 * This is defense-in-depth. The provider also constrains the
+		 * model's tool choice, but PHP remains the final authority.
+		 */
+		$required_tool =
+			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
+				$context
+			);
+
+		$required_tool_pending =
+			! empty(
+				$context['required_tool_pending']
+			);
+
+		if (
+			$required_tool_pending &&
+			'' !== $required_tool &&
+			$tool_name !== $required_tool
+		) {
+
+			WP_RapidRescue_Chat_Debug::tool(
+				'Tool blocked by Control Engine requirement',
+				array(
+					'requested_tool' =>
+						$tool_name,
+
+					'required_tool' =>
+						$required_tool,
+				)
+			);
+
+			return array(
+				'success'     => false,
+				'state'       => 'required_tool_mismatch',
+				'next_action' => 'execute_required_tool',
+				'tool'        => $tool_name,
+				'required_tool' =>
+					$required_tool,
+				'blocked'     => true,
+			);
+		}
+
+		$result = null;
+
 		switch ( $tool_name ) {
 
 			case 'search_knowledge':
-				return self::search_knowledge(
+				$result = self::search_knowledge(
 					$arguments,
 					$context
 				);
+				break;
 
 			case 'get_customer':
-				return self::get_customer(
+				$result = self::get_customer(
 					$arguments,
 					$context
 				);
+				break;
 
 			case 'lookup_ticket':
-				return self::lookup_ticket(
+				$result = self::lookup_ticket(
 					$arguments,
 					$context
 				);
+				break;
 
 			case 'verify_ticket':
-				return self::verify_ticket(
+				$result = self::verify_ticket(
 					$arguments,
 					$context
+				);
+				break;
+
+			case 'update_ticket':
+				$result = self::update_ticket(
+					$arguments,
+					$context
+				);
+				break;
+
+			case 'create_ticket':
+				$result = self::create_ticket(
+					$arguments,
+					$context
+				);
+				break;
+		}
+
+		if ( null === $result ) {
+
+			return new WP_Error(
+				'tool_execution_failed',
+				'The requested AI tool could not be executed.'
+			);
+		}
+
+		/*
+		 * Explicitly tell the provider whether the required business
+		 * operation was genuinely completed.
+		 *
+		 * Do not use only success=true. Some tools can return
+		 * success=true while still requiring another step.
+		 */
+		if (
+			is_array( $result ) &&
+			$required_tool_pending &&
+			'' !== $required_tool &&
+			$tool_name === $required_tool &&
+			self::required_tool_satisfied(
+				$tool_name,
+				$result
+			)
+		) {
+
+			$result['required_tool_satisfied'] = true;
+		} else if (
+			is_array( $result ) &&
+			$required_tool_pending &&
+			$tool_name === $required_tool
+		) {
+
+			$result['required_tool_satisfied'] = false;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Determine whether a required tool actually completed its
+	 * required business operation.
+	 *
+	 * @param string $tool_name Tool name.
+	 * @param array  $result Tool result.
+	 * @return bool
+	 */
+	private static function required_tool_satisfied(
+		$tool_name,
+		$result
+	) {
+
+		if ( ! is_array( $result ) ) {
+			return false;
+		}
+
+		if ( empty( $result['success'] ) ) {
+			return false;
+		}
+
+		switch ( $tool_name ) {
+
+			case 'create_ticket':
+				return (
+					! empty( $result['created'] ) &&
+					absint(
+						isset( $result['ticket_id'] )
+							? $result['ticket_id']
+							: 0
+					) > 0 &&
+					'' !== sanitize_text_field(
+						isset( $result['ticket_key'] )
+							? $result['ticket_key']
+							: ''
+					)
 				);
 
 			case 'update_ticket':
-				return self::update_ticket(
-					$arguments,
-					$context
+				return ! empty(
+					$result['updated']
 				);
 
-			case 'create_ticket':
-				return self::create_ticket(
-					$arguments,
-					$context
+			case 'verify_ticket':
+				return (
+					isset( $result['state'] ) &&
+					'verified' ===
+						sanitize_key(
+							$result['state']
+						)
 				);
+
+			case 'lookup_ticket':
+				return (
+					isset( $result['state'] ) &&
+					in_array(
+						sanitize_key(
+							$result['state']
+						),
+						array(
+							'email_required',
+							'not_found',
+						),
+						true
+					)
+				);
+
+			default:
+				return true;
 		}
-
-		return new WP_Error(
-			'tool_execution_failed',
-			'The requested AI tool could not be executed.'
-		);
 	}
 
 	/**
@@ -319,6 +490,7 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			: '';
 
 		if ( '' === trim( $query ) ) {
+
 			return array(
 				'success'     => false,
 				'state'       => 'invalid_request',
@@ -678,10 +850,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	/**
 	 * Update an existing verified support ticket.
 	 *
-	 * PHP is the final authority. The AI may request an update,
-	 * but it cannot update a ticket unless the current execution
-	 * context proves that the customer has verified access to it.
-	 *
 	 * @param array $arguments Tool arguments.
 	 * @param array $context   Tool context.
 	 * @return array|WP_Error
@@ -747,17 +915,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * SECURITY GATE
-		 *
-		 * A ticket number alone is never sufficient to modify a ticket.
-		 *
-		 * can_access_ticket() requires:
-		 *
-		 * - an identified customer
-		 * - customer ownership of the ticket
-		 * - a PHP-established verified ticket reference
-		 */
 		if (
 			! WP_RapidRescue_Chat_Tool_Security::can_access_ticket(
 				$ticket,
@@ -779,11 +936,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * Customer follow-ups are only allowed while the ticket
-		 * is active. Resolved and closed tickets require a separate
-		 * workflow rather than silently reopening them.
-		 */
 		if (
 			! in_array(
 				$ticket->status,
@@ -817,15 +969,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * Append the follow-up to the existing summary.
-		 *
-		 * We do not replace the original issue. This preserves
-		 * the history of what the customer originally reported.
-		 *
-		 * PHP supplies the date so the record has an authoritative
-		 * follow-up date even if the AI does not mention one.
-		 */
 		$follow_up_date =
 			wp_date(
 				'F j, Y',
@@ -913,10 +1056,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * Confirm the database update before telling the AI
-		 * that the operation succeeded.
-		 */
 		$updated_ticket =
 			WP_RapidRescue_Chat_Ticket::get_by_id(
 				absint( $ticket->id )
@@ -969,12 +1108,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 	/**
 	 * Create a support ticket.
 	 *
-	 * PHP is the final authority. The AI cannot authorize
-	 * ticket creation merely by requesting the tool.
-	 *
-	 * An explicitly confirmed NEW ticket is allowed even when
-	 * another active ticket already exists for the customer.
-	 *
 	 * @param array $arguments Tool arguments.
 	 * @param array $context   Execution context.
 	 * @return array|WP_Error
@@ -984,20 +1117,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 		$context
 	) {
 
-		/*
-		 * ---------------------------------------------------------
-		 * SECURITY GATE
-		 * ---------------------------------------------------------
-		 *
-		 * Requires:
-		 *
-		 * 1. Identified customer.
-		 * 2. Valid conversation.
-		 * 3. PHP-controlled explicit confirmation.
-		 * 4. A pending escalation request.
-		 *
-		 * This prevents Gemini from creating a ticket by itself.
-		 */
 		if (
 			! WP_RapidRescue_Chat_Tool_Security::can_create_ticket(
 				$context
@@ -1039,10 +1158,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * A ticket may only be created from a stored pending
-		 * escalation request.
-		 */
 		$pending =
 			WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
 				$conversation_id
@@ -1064,12 +1179,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * The stored pending escalation is authoritative.
-		 *
-		 * Do not allow the AI to replace the customer-approved
-		 * issue with arbitrary tool arguments.
-		 */
 		$subject =
 			isset( $pending['subject'] )
 				? sanitize_text_field(
@@ -1134,25 +1243,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 			);
 		}
 
-		/*
-		 * IMPORTANT:
-		 *
-		 * Do NOT block creation merely because the conversation
-		 * already has an active ticket.
-		 *
-		 * The customer explicitly requested a NEW ticket and PHP
-		 * already confirmed the creation workflow. Multiple active
-		 * tickets are therefore permitted.
-		 *
-		 * The existing ticket remains untouched.
-		 *
-		 * The newly-created ticket becomes the active ticket only
-		 * after successful database creation below.
-		 */
-
-		/*
-		 * Only now is the actual database creation performed.
-		 */
 		$result =
 			WP_RapidRescue_Chat_Ticket::create_from_conversation(
 				$conversation_id,
@@ -1210,12 +1300,6 @@ class WP_RapidRescue_Chat_Tool_Manager {
 				$result['ticket_key']
 			);
 
-		/*
-		 * Creation is now confirmed by the database result.
-		 *
-		 * Clear pending escalation and store the newly-created
-		 * ticket as the active ticket for this conversation.
-		 */
 		WP_RapidRescue_Chat_Conversation::clear_pending_sensitive_escalation(
 			$conversation_id
 		);
