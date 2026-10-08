@@ -30,7 +30,12 @@ class WP_RapidRescue_Chat_Control_Engine {
 	const STATE_TICKET_UPDATE_AUTHORIZED   = 'ticket_update_authorized';
 
 	/**
-	 * Evaluate the current application state.
+	 * Evaluate application state.
+	 *
+	 * A direct request to create a ticket is itself authorization to
+	 * create that ticket. There is no second confirmation step.
+	 * Human-support requests are treated as escalation intent and are
+	 * also considered authorized once the required information exists.
 	 *
 	 * @param array $context Runtime application context.
 	 * @return array
@@ -59,11 +64,6 @@ class WP_RapidRescue_Chat_Control_Engine {
 				? $context['pending_escalation']
 				: array();
 
-		$explicit_confirmation =
-			! empty(
-				$context['explicit_ticket_confirmation']
-			);
-
 		$ticket_context =
 			isset( $context['ticket_context'] ) &&
 			is_array( $context['ticket_context'] )
@@ -86,120 +86,186 @@ class WP_RapidRescue_Chat_Control_Engine {
 				)
 				: '';
 
-		/*
-		 * ---------------------------------------------------------
-		 * NEW TICKET REQUEST
-		 * ---------------------------------------------------------
-		 *
-		 * This check intentionally happens BEFORE the existing-ticket
-		 * update logic and BEFORE the active-ticket fallback.
-		 *
-		 * If the customer explicitly says they want a NEW, SEPARATE,
-		 * or BRAND-NEW ticket, the existing active ticket must not
-		 * hijack the workflow.
-		 *
-		 * Example:
-		 *
-		 * "create a new one"
-		 * "create a new ticket"
-		 * "I need a separate ticket"
-		 * "open another ticket"
-		 *
-		 * The existing ticket remains untouched.
-		 */
-		$new_ticket_request =
+		$explicit_new_ticket =
 			self::is_new_ticket_request(
 				$current_message
 			);
 
-		if ( $new_ticket_request ) {
+		$human_escalation =
+			self::is_human_escalation_request(
+				$current_message
+			);
+
+		/*
+		 * A direct request starts persistent ticket-creation state.
+		 *
+		 * This is intentionally done before evaluating the rest of the
+		 * conversation so the next turn cannot forget what the customer
+		 * asked for.
+		 */
+		if (
+			$explicit_new_ticket ||
+			$human_escalation
+		) {
+
+			$pending =
+				self::start_or_update_authorized_escalation(
+					$conversation_id,
+					$pending,
+					$current_message,
+					$explicit_new_ticket
+				);
+		}
+
+		/*
+		 * Existing authorized escalation state survives across turns.
+		 *
+		 * This is the critical state-machine behavior that was missing.
+		 */
+		if ( ! empty( $pending ) ) {
+
+			$authorized =
+				! empty(
+					$pending['confirmed']
+				);
+
+			$summary =
+				isset( $pending['summary'] )
+					? trim(
+						sanitize_textarea_field(
+							$pending['summary']
+						)
+					)
+					: '';
 
 			/*
-			 * If PHP has already stored the customer's new-ticket
-			 * request and the customer has confirmed it, authorize
-			 * the actual create_ticket tool immediately.
+			 * If the customer supplied the actual request after saying
+			 * "create a new ticket for", preserve that detail as the
+			 * pending summary.
+			 *
+			 * Never replace it with "yes", "confirm", etc.
 			 */
 			if (
-				! empty( $pending ) &&
-				$explicit_confirmation
+				$authorized &&
+				'' === $summary &&
+				self::is_substantive_ticket_detail(
+					$current_message
+				)
 			) {
 
-				if ( $customer_id < 1 ) {
-
-					return array(
-						'state'            => self::STATE_NEEDS_IDENTITY,
-						'next_action'      => 'ask_customer_for_identity',
-						'required_tool'    => '',
-						'tool_choice'      => 'auto',
-						'customer_id'      => 0,
-						'conversation_id' => $conversation_id,
-						'pending'         => true,
-						'confirmation'    => true,
-						'new_ticket'      => true,
+				$pending['summary'] =
+					sanitize_textarea_field(
+						$current_message
 					);
-				}
 
-				return array(
-					'state'            => self::STATE_TICKET_CREATION_AUTHORIZED,
-					'next_action'      => 'create_ticket',
-					'required_tool'    => 'create_ticket',
-					'tool_choice'      => 'required',
-					'customer_id'      => $customer_id,
-					'conversation_id' => $conversation_id,
-					'pending'         => true,
-					'confirmation'    => true,
-					'new_ticket'      => true,
+				self::save_pending(
+					$conversation_id,
+					$pending
 				);
+
+				$summary =
+					trim(
+						$pending['summary']
+					);
 			}
 
 			/*
-			 * A new-ticket request with no pending escalation means
-			 * the AI can prepare the ticket offer. PHP does not create
-			 * anything until the normal confirmation workflow has
-			 * completed.
+			 * Identity is always required before ticket creation.
 			 */
 			if ( $customer_id < 1 ) {
 
 				return array(
-					'state'            => self::STATE_NEEDS_IDENTITY,
-					'next_action'      => 'ask_customer_for_identity',
+					'state'            =>
+						self::STATE_NEEDS_IDENTITY,
+
+					'next_action'      =>
+						'ask_customer_for_identity',
+
 					'required_tool'    => '',
 					'tool_choice'      => 'auto',
+
 					'customer_id'      => 0,
-					'conversation_id' => $conversation_id,
-					'pending'         => ! empty( $pending ),
-					'confirmation'    => $explicit_confirmation,
+
+					'conversation_id' =>
+						$conversation_id,
+
+					'pending'         => true,
+
+					'confirmation'    =>
+						$authorized,
+
 					'new_ticket'      => true,
 				);
 			}
 
-			if ( ! empty( $pending ) ) {
+			/*
+			 * Once the customer is identified and we have actual ticket
+			 * details, creation is authorized immediately.
+			 *
+			 * There is NO confirmation step.
+			 */
+			if (
+				$authorized &&
+				'' !== $summary
+			) {
 
 				return array(
-					'state'            => self::STATE_AWAITING_CONFIRMATION,
-					'next_action'      => 'ask_customer_for_confirmation',
-					'required_tool'    => '',
-					'tool_choice'      => 'auto',
-					'customer_id'      => $customer_id,
-					'conversation_id' => $conversation_id,
+					'state'            =>
+						self::STATE_TICKET_CREATION_AUTHORIZED,
+
+					'next_action'      =>
+						'create_ticket',
+
+					'required_tool'    =>
+						'create_ticket',
+
+					'tool_choice'      =>
+						'required',
+
+					'customer_id'      =>
+						$customer_id,
+
+					'conversation_id' =>
+						$conversation_id,
+
 					'pending'         => true,
-					'confirmation'    => false,
+
+					'confirmation'    => true,
+
 					'new_ticket'      => true,
 				);
 			}
 
+			/*
+			 * The user has requested escalation but has not yet supplied
+			 * enough information to create the ticket.
+			 */
 			return array(
-				'state'            => self::STATE_NEW_TICKET_REQUESTED,
-				'next_action'      => 'prepare_new_ticket',
-				'required_tool'    => '',
-				'tool_choice'      => 'auto',
-				'customer_id'      => $customer_id,
-				'conversation_id' => $conversation_id,
-				'pending'         => false,
-				'confirmation'    => $explicit_confirmation,
-				'new_ticket'      => true,
-				'active_ticket_key' =>
-					$active_ticket_key,
+				'state' =>
+					$authorized
+						? self::STATE_NEW_TICKET_REQUESTED
+						: self::STATE_ESCALATION_PENDING,
+
+				'next_action' =>
+					'collect_ticket_details',
+
+				'required_tool' => '',
+				'tool_choice'   => 'auto',
+
+				'customer_id' =>
+					$customer_id,
+
+				'conversation_id' =>
+					$conversation_id,
+
+				'pending' =>
+					true,
+
+				'confirmation' =>
+					$authorized,
+
+				'new_ticket' =>
+					true,
 			);
 		}
 
@@ -207,13 +273,6 @@ class WP_RapidRescue_Chat_Control_Engine {
 		 * ---------------------------------------------------------
 		 * EXISTING TICKET UPDATE
 		 * ---------------------------------------------------------
-		 *
-		 * A verified ticket plus a customer request to follow up,
-		 * update, add information, or report that the issue remains
-		 * unresolved requires the update_ticket tool.
-		 *
-		 * This is deliberately evaluated AFTER the explicit NEW
-		 * ticket check above.
 		 */
 		$verified_ticket =
 			self::get_verified_ticket(
@@ -228,7 +287,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 		) {
 
 			$ticket_status =
-				isset( $verified_ticket['status'] )
+				isset(
+					$verified_ticket['status']
+				)
 					? sanitize_key(
 						$verified_ticket['status']
 					)
@@ -247,16 +308,34 @@ class WP_RapidRescue_Chat_Control_Engine {
 			) {
 
 				return array(
-					'state'            => self::STATE_TICKET_UPDATE_AUTHORIZED,
-					'next_action'      => 'update_ticket',
-					'required_tool'    => 'update_ticket',
-					'tool_choice'      => 'required',
-					'customer_id'      => $customer_id,
-					'conversation_id' => $conversation_id,
-					'pending'         => false,
-					'confirmation'    => false,
-					'new_ticket'      => false,
-					'ticket_key'      =>
+					'state' =>
+						self::STATE_TICKET_UPDATE_AUTHORIZED,
+
+					'next_action' =>
+						'update_ticket',
+
+					'required_tool' =>
+						'update_ticket',
+
+					'tool_choice' =>
+						'required',
+
+					'customer_id' =>
+						$customer_id,
+
+					'conversation_id' =>
+						$conversation_id,
+
+					'pending' =>
+						false,
+
+					'confirmation' =>
+						false,
+
+					'new_ticket' =>
+						false,
+
+					'ticket_key' =>
 						isset(
 							$verified_ticket['ticket_key']
 						)
@@ -268,16 +347,34 @@ class WP_RapidRescue_Chat_Control_Engine {
 			}
 
 			return array(
-				'state'            => self::STATE_TICKET_UPDATE_REQUESTED,
-				'next_action'      => 'ticket_not_updateable',
-				'required_tool'    => '',
-				'tool_choice'      => 'auto',
-				'customer_id'      => $customer_id,
-				'conversation_id' => $conversation_id,
-				'pending'         => false,
-				'confirmation'    => false,
-				'new_ticket'      => false,
-				'ticket_key'      =>
+				'state' =>
+					self::STATE_TICKET_UPDATE_REQUESTED,
+
+				'next_action' =>
+					'ticket_not_updateable',
+
+				'required_tool' =>
+					'',
+
+				'tool_choice' =>
+					'auto',
+
+				'customer_id' =>
+					$customer_id,
+
+				'conversation_id' =>
+					$conversation_id,
+
+				'pending' =>
+					false,
+
+				'confirmation' =>
+					false,
+
+				'new_ticket' =>
+					false,
+
+				'ticket_key' =>
 					isset(
 						$verified_ticket['ticket_key']
 					)
@@ -290,119 +387,43 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 		/*
 		 * ---------------------------------------------------------
-		 * PENDING TICKET CREATION
-		 * ---------------------------------------------------------
-		 *
-		 * This is the normal confirmation workflow.
-		 *
-		 * Once the customer has explicitly confirmed, the
-		 * create_ticket tool becomes mandatory.
-		 *
-		 * IMPORTANT:
-		 *
-		 * The existence of an active ticket does NOT matter here.
-		 * The pending request represents a separate ticket request.
-		 */
-		if (
-			! empty( $pending ) &&
-			$explicit_confirmation
-		) {
-
-			if ( $customer_id < 1 ) {
-
-				return array(
-					'state'            => self::STATE_NEEDS_IDENTITY,
-					'next_action'      => 'ask_customer_for_identity',
-					'required_tool'    => '',
-					'tool_choice'      => 'auto',
-					'customer_id'      => 0,
-					'conversation_id' => $conversation_id,
-					'pending'         => true,
-					'confirmation'    => true,
-					'new_ticket'      => true,
-				);
-			}
-
-			return array(
-				'state'            => self::STATE_TICKET_CREATION_AUTHORIZED,
-				'next_action'      => 'create_ticket',
-				'required_tool'    => 'create_ticket',
-				'tool_choice'      => 'required',
-				'customer_id'      => $customer_id,
-				'conversation_id' => $conversation_id,
-				'pending'         => true,
-				'confirmation'    => true,
-				'new_ticket'      => true,
-			);
-		}
-
-		/*
-		 * ---------------------------------------------------------
-		 * PENDING ESCALATION WITHOUT IDENTITY
-		 * ---------------------------------------------------------
-		 */
-		if (
-			! empty( $pending ) &&
-			$customer_id < 1
-		) {
-
-			return array(
-				'state'            => self::STATE_NEEDS_IDENTITY,
-				'next_action'      => 'ask_customer_for_identity',
-				'required_tool'    => '',
-				'tool_choice'      => 'auto',
-				'customer_id'      => 0,
-				'conversation_id' => $conversation_id,
-				'pending'         => true,
-				'confirmation'    => false,
-				'new_ticket'      => true,
-			);
-		}
-
-		/*
-		 * ---------------------------------------------------------
-		 * PENDING ESCALATION WAITING FOR CONFIRMATION
-		 * ---------------------------------------------------------
-		 */
-		if ( ! empty( $pending ) ) {
-
-			return array(
-				'state'            => self::STATE_AWAITING_CONFIRMATION,
-				'next_action'      => 'ask_customer_for_confirmation',
-				'required_tool'    => '',
-				'tool_choice'      => 'auto',
-				'customer_id'      => $customer_id,
-				'conversation_id' => $conversation_id,
-				'pending'         => true,
-				'confirmation'    => false,
-				'new_ticket'      => true,
-			);
-		}
-
-		/*
-		 * ---------------------------------------------------------
 		 * EXISTING ACTIVE TICKET
 		 * ---------------------------------------------------------
 		 *
-		 * This is only reached when the customer did NOT explicitly
-		 * request a new ticket.
-		 *
-		 * Therefore an existing ticket can no longer interfere with
-		 * "create a new one".
+		 * Only reached when no new-ticket/escalation state exists.
 		 */
 		if ( '' !== $active_ticket_key ) {
 
 			return array(
-				'state'            => self::STATE_TICKET_ACTIVE,
-				'next_action'      => 'use_active_ticket',
-				'required_tool'    => '',
-				'tool_choice'      => 'auto',
-				'customer_id'      => $customer_id,
-				'conversation_id' => $conversation_id,
-				'pending'         => false,
-				'confirmation'    => $explicit_confirmation,
-				'new_ticket'      => false,
-				'ticket_key'      => $active_ticket_key,
+				'state' =>
+					self::STATE_TICKET_ACTIVE,
+
+				'next_action' =>
+					'use_active_ticket',
+
+				'required_tool' =>
+					'',
+
+				'tool_choice' =>
+					'auto',
+
+				'customer_id' =>
+					$customer_id,
+
+				'conversation_id' =>
+					$conversation_id,
+
+				'pending' =>
+					false,
+
+				'confirmation' =>
+					false,
+
+				'new_ticket' =>
+					false,
+
+				'ticket_key' =>
+					$active_ticket_key,
 			);
 		}
 
@@ -415,7 +436,9 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 			if (
 				is_array( $ticket ) &&
-				isset( $ticket['lookup_status'] ) &&
+				isset(
+					$ticket['lookup_status']
+				) &&
 				'email_required' ===
 					sanitize_key(
 						$ticket['lookup_status']
@@ -423,49 +446,132 @@ class WP_RapidRescue_Chat_Control_Engine {
 			) {
 
 				return array(
-					'state'            => self::STATE_VERIFICATION_REQUIRED,
-					'next_action'      => 'verify_ticket',
-					'required_tool'    => '',
-					'tool_choice'      => 'auto',
-					'customer_id'      => $customer_id,
-					'conversation_id' => $conversation_id,
-					'pending'         => false,
-					'confirmation'    => false,
-					'new_ticket'      => false,
+					'state' =>
+						self::STATE_VERIFICATION_REQUIRED,
+
+					'next_action' =>
+						'verify_ticket',
+
+					'required_tool' =>
+						'',
+
+					'tool_choice' =>
+						'auto',
+
+					'customer_id' =>
+						$customer_id,
+
+					'conversation_id' =>
+						$conversation_id,
+
+					'pending' =>
+						false,
+
+					'confirmation' =>
+						false,
+
+					'new_ticket' =>
+						false,
 				);
 			}
 		}
 
 		return array(
-			'state'            => self::STATE_NORMAL,
-			'next_action'      => 'continue_conversation',
-			'required_tool'    => '',
-			'tool_choice'      => 'auto',
-			'customer_id'      => $customer_id,
-			'conversation_id' => $conversation_id,
-			'pending'         => false,
-			'confirmation'    => false,
-			'new_ticket'      => false,
+			'state' =>
+				self::STATE_NORMAL,
+
+			'next_action' =>
+				'continue_conversation',
+
+			'required_tool' =>
+				'',
+
+			'tool_choice' =>
+				'auto',
+
+			'customer_id' =>
+				$customer_id,
+
+			'conversation_id' =>
+				$conversation_id,
+
+			'pending' =>
+				false,
+
+			'confirmation' =>
+				false,
+
+			'new_ticket' =>
+				false,
 		);
 	}
 
 	/**
-	 * Add control-engine state to provider context.
+	 * Add deterministic control state to provider context.
 	 *
 	 * @param array $context Runtime context.
 	 * @return array
 	 */
-	public static function prepare_context( $context = array() ) {
+	public static function prepare_context(
+		$context = array()
+	) {
 
 		if ( ! is_array( $context ) ) {
 			$context = array();
 		}
 
 		$decision =
-			self::evaluate( $context );
+			self::evaluate(
+				$context
+			);
 
 		$context['control_engine'] =
 			$decision;
+
+		/*
+		 * The authorization is generated by PHP, never by the model.
+		 *
+		 * Tool Security may safely use this PHP-established flag when
+		 * create_ticket is required.
+		 */
+		if (
+			! empty(
+				$decision['confirmation']
+			) &&
+			! empty(
+				$decision['new_ticket']
+			)
+		) {
+
+			$context['explicit_ticket_confirmation'] =
+				true;
+		}
+
+		/*
+		 * Refresh persisted pending state after evaluate().
+		 */
+		if (
+			! empty(
+				$decision['pending']
+			)
+		) {
+
+			$pending =
+				WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
+					absint(
+						isset(
+							$context['conversation_id']
+						)
+							? $context['conversation_id']
+							: 0
+					)
+				);
+
+			$context['pending_escalation'] =
+				$pending
+					? $pending
+					: array();
+		}
 
 		return $context;
 	}
@@ -476,15 +582,25 @@ class WP_RapidRescue_Chat_Control_Engine {
 	 * @param array $context Runtime context.
 	 * @return string
 	 */
-	public static function get_required_tool( $context = array() ) {
+	public static function get_required_tool(
+		$context = array()
+	) {
 
 		$decision =
-			isset( $context['control_engine'] ) &&
-			is_array( $context['control_engine'] )
+			isset(
+				$context['control_engine']
+			) &&
+			is_array(
+				$context['control_engine']
+			)
 				? $context['control_engine']
-				: self::evaluate( $context );
+				: self::evaluate(
+					$context
+				);
 
-		return isset( $decision['required_tool'] )
+		return isset(
+			$decision['required_tool']
+		)
 			? sanitize_key(
 				$decision['required_tool']
 			)
@@ -497,21 +613,27 @@ class WP_RapidRescue_Chat_Control_Engine {
 	 * @param array $decision Control decision.
 	 * @return string
 	 */
-	public static function describe( $decision ) {
+	public static function describe(
+		$decision
+	) {
 
 		if ( ! is_array( $decision ) ) {
 			return 'No control decision is available.';
 		}
 
 		$state =
-			isset( $decision['state'] )
+			isset(
+				$decision['state']
+			)
 				? sanitize_key(
 					$decision['state']
 				)
 				: self::STATE_NORMAL;
 
 		$next_action =
-			isset( $decision['next_action'] )
+			isset(
+				$decision['next_action']
+			)
 				? sanitize_key(
 					$decision['next_action']
 				)
@@ -525,7 +647,253 @@ class WP_RapidRescue_Chat_Control_Engine {
 	}
 
 	/**
-	 * Find a verified ticket in ticket context.
+	 * Persist or update an authorized escalation request.
+	 *
+	 * @param int    $conversation_id Conversation ID.
+	 * @param array  $pending Existing pending state.
+	 * @param string $message Current customer message.
+	 * @param bool   $direct_new_ticket Whether user explicitly requested a new ticket.
+	 * @return array
+	 */
+	private static function start_or_update_authorized_escalation(
+		$conversation_id,
+		$pending,
+		$message,
+		$direct_new_ticket
+	) {
+
+		$conversation_id =
+			absint(
+				$conversation_id
+			);
+
+		if ( $conversation_id < 1 ) {
+			return is_array( $pending )
+				? $pending
+				: array();
+		}
+
+		$pending =
+			is_array( $pending )
+				? $pending
+				: array();
+
+		$subject =
+			isset(
+				$pending['subject']
+			)
+				? sanitize_text_field(
+					$pending['subject']
+				)
+				: '';
+
+		$summary =
+			isset(
+				$pending['summary']
+			)
+				? sanitize_textarea_field(
+					$pending['summary']
+				)
+				: '';
+
+		$reason =
+			isset(
+				$pending['reason']
+			)
+				? sanitize_textarea_field(
+					$pending['reason']
+				)
+				: '';
+
+		$priority =
+			isset(
+				$pending['priority']
+			)
+				? sanitize_key(
+					$pending['priority']
+				)
+				: 'normal';
+
+		if ( '' === $subject ) {
+			$subject =
+				'Customer support request';
+		}
+
+		if ( '' === $reason ) {
+
+			$reason =
+				$direct_new_ticket
+					? 'Customer explicitly requested a new support ticket.'
+					: 'Customer explicitly requested human support.';
+		}
+
+		if (
+			'' === $summary &&
+			self::is_substantive_ticket_detail(
+				$message
+			)
+		) {
+
+			$summary =
+				sanitize_textarea_field(
+					$message
+				);
+		}
+
+		/*
+		 * Direct ticket requests and human-help requests are both
+		 * authorized. The customer does not need to confirm twice.
+		 */
+		$confirmed = true;
+
+		$result =
+			WP_RapidRescue_Chat_Conversation::set_pending_sensitive_escalation(
+				$conversation_id,
+				$subject,
+				$summary,
+				$priority,
+				$reason,
+				$confirmed
+			);
+
+		if ( is_wp_error( $result ) ) {
+			return $pending;
+		}
+
+		$stored =
+			WP_RapidRescue_Chat_Conversation::get_pending_sensitive_escalation(
+				$conversation_id
+			);
+
+		return $stored && is_array( $stored )
+			? $stored
+			: $pending;
+	}
+
+	/**
+	 * Save pending state.
+	 *
+	 * @param int   $conversation_id Conversation ID.
+	 * @param array $pending Pending state.
+	 * @return void
+	 */
+	private static function save_pending(
+		$conversation_id,
+		$pending
+	) {
+
+		if (
+			absint(
+				$conversation_id
+			) < 1 ||
+			! is_array(
+				$pending
+			)
+		) {
+			return;
+		}
+
+		WP_RapidRescue_Chat_Conversation::set_pending_sensitive_escalation(
+			$conversation_id,
+
+			isset(
+				$pending['subject']
+			)
+				? $pending['subject']
+				: 'Customer support request',
+
+			isset(
+				$pending['summary']
+			)
+				? $pending['summary']
+				: '',
+
+			isset(
+				$pending['priority']
+			)
+				? $pending['priority']
+				: 'normal',
+
+			isset(
+				$pending['reason']
+			)
+				? $pending['reason']
+				: '',
+
+			! empty(
+				$pending['confirmed']
+			)
+		);
+	}
+
+	/**
+	 * Determine whether a message contains useful ticket details.
+	 *
+	 * @param string $message Message.
+	 * @return bool
+	 */
+	private static function is_substantive_ticket_detail(
+		$message
+	) {
+
+		$message =
+			strtolower(
+				trim(
+					sanitize_textarea_field(
+						$message
+					)
+				)
+			);
+
+		if ( '' === $message ) {
+			return false;
+		}
+
+		$non_details =
+			array(
+				'create a new ticket',
+				'create new ticket',
+				'open a new ticket',
+				'open new ticket',
+				'create a ticket',
+				'open a ticket',
+				'new ticket',
+				'create it',
+				'yes',
+				'yes please',
+				'confirm',
+				'go ahead',
+			);
+
+		if (
+			in_array(
+				$message,
+				$non_details,
+				true
+			)
+		) {
+			return false;
+		}
+
+		/*
+		 * An unfinished request such as
+		 * "create a new ticket for"
+		 * is intent, not the actual ticket details.
+		 */
+		if (
+			preg_match(
+				'/\b(for|about|regarding|because|that|this|concerning|on)\s*$/i',
+				$message
+			)
+		) {
+			return false;
+		}
+
+		return strlen( $message ) >= 8;
+	}
+
+	/**
+	 * Find a verified ticket in context.
 	 *
 	 * @param array $ticket_context Ticket context.
 	 * @return array|null
@@ -540,12 +908,11 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 		foreach ( $ticket_context as $ticket ) {
 
-			if ( ! is_array( $ticket ) ) {
-				continue;
-			}
-
 			if (
-				isset( $ticket['lookup_status'] ) &&
+				is_array( $ticket ) &&
+				isset(
+					$ticket['lookup_status']
+				) &&
 				'verified' ===
 					sanitize_key(
 						$ticket['lookup_status']
@@ -560,8 +927,6 @@ class WP_RapidRescue_Chat_Control_Engine {
 
 	/**
 	 * Determine whether the customer explicitly wants a NEW ticket.
-	 *
-	 * This must be checked before existing-ticket update logic.
 	 *
 	 * @param string $message Customer message.
 	 * @return bool
@@ -583,54 +948,41 @@ class WP_RapidRescue_Chat_Control_Engine {
 			return false;
 		}
 
-		$patterns = array(
+		$patterns =
+			array(
 
-			/*
-			 * Direct new-ticket requests.
-			 */
-			'/\bcreate\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
-			'/\bopen\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
-			'/\bmake\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
-			'/\bstart\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
+				'/\bcreate\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
+				'/\bopen\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
+				'/\bmake\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
+				'/\bstart\s+(a\s+)?new\s+(support\s+)?ticket\b/i',
 
-			/*
-			 * Explicitly separate/another ticket.
-			 */
-			'/\bcreate\s+(a\s+)?separate\s+ticket\b/i',
-			'/\bopen\s+(a\s+)?separate\s+ticket\b/i',
-			'/\bcreate\s+another\s+ticket\b/i',
-			'/\bopen\s+another\s+ticket\b/i',
-			'/\bmake\s+another\s+ticket\b/i',
-			'/\bneed\s+another\s+ticket\b/i',
-			'/\bneed\s+a\s+separate\s+ticket\b/i',
+				'/\bcreate\s+(a\s+)?separate\s+ticket\b/i',
+				'/\bopen\s+(a\s+)?separate\s+ticket\b/i',
+				'/\bcreate\s+another\s+ticket\b/i',
+				'/\bopen\s+another\s+ticket\b/i',
+				'/\bneed\s+another\s+ticket\b/i',
+				'/\bneed\s+a\s+separate\s+ticket\b/i',
 
-			/*
-			 * Natural follow-up language.
-			 */
-			'/\bnew\s+one\b/i',
-			'/\banother\s+one\b/i',
-			'/\bseparate\s+one\b/i',
+				'/\bcreate\s+one\b/i',
+				'/\bopen\s+one\b/i',
+				'/\bmake\s+one\b/i',
 
-			/*
-			 * Common imperative wording.
-			 */
-			'/\bcreate\s+one\b/i',
-			'/\bopen\s+one\b/i',
-			'/\bmake\s+one\b/i',
+				'/\bnew\s+one\b/i',
+				'/\banother\s+one\b/i',
+				'/\bseparate\s+one\b/i',
 
-			/*
-			 * Explicitly saying not to use the existing ticket.
-			 */
-			'/\bnot\s+(the|my|an?)\s+existing\s+ticket\b/i',
-			'/\bdo\s+not\s+use\s+(the|my)\s+existing\s+ticket\b/i',
-			'/\bdon[\'’]?t\s+use\s+(the|my)\s+existing\s+ticket\b/i',
-			'/\bnot\s+add\s+(this|that)\s+to\s+(the|my)\s+existing\s+ticket\b/i',
-			'/\bdon[\'’]?t\s+add\s+(this|that)\s+to\s+(the|my)\s+existing\s+ticket\b/i',
-		);
+				'/\bdo\s+not\s+use\s+(the|my)\s+existing\s+ticket\b/i',
+				'/\bdon[\'’]?t\s+use\s+(the|my)\s+existing\s+ticket\b/i',
+			);
 
 		foreach ( $patterns as $pattern ) {
 
-			if ( preg_match( $pattern, $message ) ) {
+			if (
+				preg_match(
+					$pattern,
+					$message
+				)
+			) {
 				return true;
 			}
 		}
@@ -639,9 +991,66 @@ class WP_RapidRescue_Chat_Control_Engine {
 	}
 
 	/**
-	 * Determine whether the customer is requesting a ticket update.
+	 * Determine whether the customer explicitly requests human support.
 	 *
-	 * This is intentionally conservative.
+	 * @param string $message Customer message.
+	 * @return bool
+	 */
+	private static function is_human_escalation_request(
+		$message
+	) {
+
+		$message =
+			strtolower(
+				trim(
+					sanitize_textarea_field(
+						$message
+					)
+				)
+			);
+
+		if ( '' === $message ) {
+			return false;
+		}
+
+		$patterns =
+			array(
+
+				'/\b(i|we)\s+want\s+(a\s+)?(person|human|agent|support\s+person)\b/i',
+
+				'/\b(i|we)\s+need\s+(a\s+)?(person|human|agent|support\s+person)\b/i',
+
+				'/\b(can|could|would)\s+(someone|a\s+person|an\s+agent)\s+(help|assist)\b/i',
+
+				'/\b(talk|speak|chat)\s+(to|with)\s+(a\s+)?(person|human|agent)\b/i',
+
+				'/\bhuman\s+(help|support|assistance)\b/i',
+
+				'/\b(person|agent)\s+(help|support|assistance)\b/i',
+
+				'/\bconnect\s+me\s+(with|to)\s+(a\s+)?(person|human|agent)\b/i',
+
+				'/\bneed\s+someone\s+to\s+help\b/i',
+			);
+
+		foreach ( $patterns as $pattern ) {
+
+			if (
+				preg_match(
+					$pattern,
+					$message
+				)
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Determine whether the customer is requesting an existing
+	 * ticket update.
 	 *
 	 * @param string $message Customer message.
 	 * @return bool
@@ -663,31 +1072,43 @@ class WP_RapidRescue_Chat_Control_Engine {
 			return false;
 		}
 
-		$patterns = array(
-			'/\bupdate\b.*\bticket\b/i',
-			'/\bticket\b.*\bupdate\b/i',
-			'/\bfollow[\s-]?up\b/i',
-			'/\bfollow up\b/i',
-			'/\bnot resolved\b/i',
-			'/\bnot yet resolved\b/i',
-			'/\bstill not resolved\b/i',
-			'/\bstill unresolved\b/i',
-			'/\bstill not fixed\b/i',
-			'/\bnot fixed yet\b/i',
-			'/\bissue is still\b/i',
-			'/\bproblem is still\b/i',
-			'/\badd (this|that|some) (to|on) (my|the) ticket\b/i',
-			'/\badd (this|that|some) information\b/i',
-			'/\badd (a )?note\b.*\bticket\b/i',
-			'/\bplease (put|add|note)\b.*\bticket\b/i',
-			'/\bplease update\b/i',
-			'/\bupdate my case\b/i',
-			'/\bupdate my support request\b/i',
-		);
+		$patterns =
+			array(
+
+				'/\bupdate\b.*\bticket\b/i',
+				'/\bticket\b.*\bupdate\b/i',
+
+				'/\bfollow[\s-]?up\b/i',
+
+				'/\bnot resolved\b/i',
+				'/\bnot yet resolved\b/i',
+				'/\bstill not resolved\b/i',
+				'/\bstill unresolved\b/i',
+				'/\bstill not fixed\b/i',
+				'/\bnot fixed yet\b/i',
+
+				'/\bissue is still\b/i',
+				'/\bproblem is still\b/i',
+
+				'/\badd (this|that|some) (to|on) (my|the) ticket\b/i',
+				'/\badd (this|that|some) information\b/i',
+				'/\badd (a )?note\b.*\bticket\b/i',
+
+				'/\bplease (put|add|note)\b.*\bticket\b/i',
+				'/\bplease update\b/i',
+
+				'/\bupdate my case\b/i',
+				'/\bupdate my support request\b/i',
+			);
 
 		foreach ( $patterns as $pattern ) {
 
-			if ( preg_match( $pattern, $message ) ) {
+			if (
+				preg_match(
+					$pattern,
+					$message
+				)
+			) {
 				return true;
 			}
 		}
