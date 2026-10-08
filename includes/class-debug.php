@@ -12,16 +12,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Temporary debugging for the chat request flow.
  *
- * Set ENABLED to false when debugging is no longer needed.
+ * Debugging can be enabled or disabled from:
+ *
+ * WP RapidRescue Chat → Settings → Debugging
  */
 class WP_RapidRescue_Chat_Debug {
-
-	/**
-	 * Master debug switch.
-	 *
-	 * @var bool
-	 */
-	const ENABLED = true;
 
 	/**
 	 * Current request trace.
@@ -33,12 +28,24 @@ class WP_RapidRescue_Chat_Debug {
 	/**
 	 * Initialize the debug logger.
 	 *
-	 * This method exists for compatibility with the plugin bootstrap.
-	 *
 	 * @return void
 	 */
 	public static function init() {
+
 		self::$trace = array();
+	}
+
+	/**
+	 * Check whether debugging is enabled.
+	 *
+	 * @return bool
+	 */
+	public static function enabled() {
+
+		return (bool) WP_RapidRescue_Chat_Settings::get(
+			'debug_mode',
+			false
+		);
 	}
 
 	/**
@@ -55,7 +62,7 @@ class WP_RapidRescue_Chat_Debug {
 		$data = array()
 	) {
 
-		if ( ! self::ENABLED ) {
+		if ( ! self::enabled() ) {
 			return;
 		}
 
@@ -74,7 +81,10 @@ class WP_RapidRescue_Chat_Debug {
 		 * Prevent an accidental runaway trace.
 		 */
 		if ( count( self::$trace ) > 100 ) {
-			self::$trace = array_slice( self::$trace, -100 );
+			self::$trace = array_slice(
+				self::$trace,
+				-100
+			);
 		}
 	}
 
@@ -85,8 +95,16 @@ class WP_RapidRescue_Chat_Debug {
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function rest( $message, $data = array() ) {
-		self::add( 'REST', $message, $data );
+	public static function rest(
+		$message,
+		$data = array()
+	) {
+
+		self::add(
+			'REST',
+			$message,
+			$data
+		);
 	}
 
 	/**
@@ -96,8 +114,16 @@ class WP_RapidRescue_Chat_Debug {
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function ticket( $message, $data = array() ) {
-		self::add( 'TICKET', $message, $data );
+	public static function ticket(
+		$message,
+		$data = array()
+	) {
+
+		self::add(
+			'TICKET',
+			$message,
+			$data
+		);
 	}
 
 	/**
@@ -107,8 +133,16 @@ class WP_RapidRescue_Chat_Debug {
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function tool( $message, $data = array() ) {
-		self::add( 'TOOL', $message, $data );
+	public static function tool(
+		$message,
+		$data = array()
+	) {
+
+		self::add(
+			'TOOL',
+			$message,
+			$data
+		);
 	}
 
 	/**
@@ -118,17 +152,16 @@ class WP_RapidRescue_Chat_Debug {
 	 * @param array  $data    Optional data.
 	 * @return void
 	 */
-	public static function ai( $message, $data = array() ) {
-		self::add( 'AI', $message, $data );
-	}
+	public static function ai(
+		$message,
+		$data = array()
+	) {
 
-	/**
-	 * Check whether debugging is enabled.
-	 *
-	 * @return bool
-	 */
-	public static function enabled() {
-		return self::ENABLED;
+		self::add(
+			'AI',
+			$message,
+			$data
+		);
 	}
 
 	/**
@@ -138,7 +171,7 @@ class WP_RapidRescue_Chat_Debug {
 	 */
 	public static function get_trace() {
 
-		if ( ! self::ENABLED ) {
+		if ( ! self::enabled() ) {
 			return array();
 		}
 
@@ -152,7 +185,10 @@ class WP_RapidRescue_Chat_Debug {
 	 */
 	public static function get_trace_text() {
 
-		if ( ! self::ENABLED || empty( self::$trace ) ) {
+		if (
+			! self::enabled() ||
+			empty( self::$trace )
+		) {
 			return '';
 		}
 
@@ -162,8 +198,13 @@ class WP_RapidRescue_Chat_Debug {
 
 		foreach ( self::$trace as $entry ) {
 
-			$stage   = isset( $entry['stage'] ) ? $entry['stage'] : 'DEBUG';
-			$message = isset( $entry['message'] ) ? $entry['message'] : '';
+			$stage = isset( $entry['stage'] )
+				? $entry['stage']
+				: 'DEBUG';
+
+			$message = isset( $entry['message'] )
+				? $entry['message']
+				: '';
 
 			$line = '[' . $stage . '] ' . $message;
 
@@ -173,19 +214,36 @@ class WP_RapidRescue_Chat_Debug {
 				! empty( $entry['data'] )
 			) {
 
-				foreach ( $entry['data'] as $key => $value ) {
+				foreach (
+					$entry['data'] as $key => $value
+				) {
 
 					if ( is_array( $value ) ) {
-						$value = wp_json_encode( $value );
+
+						$value = wp_json_encode(
+							$value
+						);
+
 					} elseif ( is_bool( $value ) ) {
-						$value = $value ? 'true' : 'false';
+
+						$value = $value
+							? 'true'
+							: 'false';
+
 					} elseif ( null === $value ) {
+
 						$value = 'null';
+
 					} else {
+
 						$value = (string) $value;
 					}
 
-					$line .= ' | ' . sanitize_key( $key ) . ': ' . $value;
+					$line .=
+						' | ' .
+						sanitize_key( $key ) .
+						': ' .
+						$value;
 				}
 			}
 
@@ -194,7 +252,10 @@ class WP_RapidRescue_Chat_Debug {
 
 		$lines[] = '────────────────────────────';
 
-		return implode( "\n", $lines );
+		return implode(
+			"\n",
+			$lines
+		);
 	}
 
 	/**
@@ -217,16 +278,34 @@ class WP_RapidRescue_Chat_Debug {
 				$safe_key = sanitize_key( $key );
 
 				if (
-					false !== strpos( $safe_key, 'key' ) ||
-					false !== strpos( $safe_key, 'secret' ) ||
-					false !== strpos( $safe_key, 'token' ) ||
-					false !== strpos( $safe_key, 'authorization' )
+					false !== strpos(
+						$safe_key,
+						'key'
+					) ||
+					false !== strpos(
+						$safe_key,
+						'secret'
+					) ||
+					false !== strpos(
+						$safe_key,
+						'token'
+					) ||
+					false !== strpos(
+						$safe_key,
+						'authorization'
+					)
 				) {
-					$output[ $safe_key ] = '[REDACTED]';
+
+					$output[ $safe_key ] =
+						'[REDACTED]';
+
 					continue;
 				}
 
-				$output[ $safe_key ] = self::sanitize_data( $value );
+				$output[ $safe_key ] =
+					self::sanitize_data(
+						$value
+					);
 			}
 
 			return $output;
@@ -236,7 +315,10 @@ class WP_RapidRescue_Chat_Debug {
 			return '[OBJECT]';
 		}
 
-		if ( is_bool( $data ) || null === $data ) {
+		if (
+			is_bool( $data ) ||
+			null === $data
+		) {
 			return $data;
 		}
 
@@ -245,16 +327,27 @@ class WP_RapidRescue_Chat_Debug {
 		$value = preg_replace_callback(
 			'/([a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]*@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/',
 			function ( $matches ) {
-				return $matches[1] . '***@' . $matches[2];
+
+				return $matches[1] .
+					'***@' .
+					$matches[2];
 			},
 			$value
 		);
 
 		if ( strlen( $value ) > 500 ) {
-			$value = substr( $value, 0, 500 ) . '...';
+
+			$value =
+				substr(
+					$value,
+					0,
+					500
+				) .
+				'...';
 		}
 
-		return sanitize_text_field( $value );
+		return sanitize_text_field(
+			$value
+		);
 	}
 }
- 

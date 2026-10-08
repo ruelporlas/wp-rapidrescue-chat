@@ -24,8 +24,6 @@ class WP_RapidRescue_Chat_Settings {
 	/**
 	 * Get the default settings.
 	 *
-	 * These defaults are intentionally business-agnostic.
-	 *
 	 * @return array
 	 */
 	public static function get_defaults() {
@@ -36,6 +34,11 @@ class WP_RapidRescue_Chat_Settings {
 			'openai_model'           => 'gpt-6-luna',
 			'gemini_api_key'         => '',
 			'gemini_model'           => 'gemini-3.8-flash',
+
+			/*
+			 * Debug mode is disabled by default.
+			 */
+			'debug_mode'             => false,
 
 			'ai_assistant_role'      => 'AI customer assistant',
 
@@ -96,7 +99,7 @@ class WP_RapidRescue_Chat_Settings {
 			'OpenAI Model',
 			array( __CLASS__, 'render_openai_model_field' ),
 			'wp-rapidrescue-chat',
-			'wp-rapidrescue_chat_ai_section'
+			'wp_rapidrescue_chat_ai_section'
 		);
 
 		add_settings_field(
@@ -113,6 +116,24 @@ class WP_RapidRescue_Chat_Settings {
 			array( __CLASS__, 'render_gemini_model_field' ),
 			'wp-rapidrescue-chat',
 			'wp_rapidrescue_chat_ai_section'
+		);
+
+		/*
+		 * Debug settings.
+		 */
+		add_settings_section(
+			'wp_rapidrescue_chat_debug_section',
+			'Debugging',
+			array( __CLASS__, 'render_debug_section' ),
+			'wp-rapidrescue-chat'
+		);
+
+		add_settings_field(
+			'debug_mode',
+			'Debug Mode',
+			array( __CLASS__, 'render_debug_mode_field' ),
+			'wp-rapidrescue-chat',
+			'wp_rapidrescue_chat_debug_section'
 		);
 
 		add_settings_section(
@@ -151,7 +172,7 @@ class WP_RapidRescue_Chat_Settings {
 			'Behavior Instructions',
 			array( __CLASS__, 'render_behavior_field' ),
 			'wp-rapidrescue-chat',
-			'wp-rapidrescue_chat_skill_section'
+			'wp_rapidrescue_chat_skill_section'
 		);
 
 		add_settings_field(
@@ -211,6 +232,14 @@ class WP_RapidRescue_Chat_Settings {
 			: $defaults['gemini_model'];
 
 		/*
+		 * Debug mode.
+		 *
+		 * A checkbox does not submit a value when unchecked.
+		 * Therefore explicitly convert it to a boolean.
+		 */
+		$sanitized['debug_mode'] = ! empty( $input['debug_mode'] );
+
+		/*
 		 * Preserve existing API keys when the password field is left blank.
 		 */
 		if (
@@ -231,9 +260,6 @@ class WP_RapidRescue_Chat_Settings {
 
 		/*
 		 * AI Assistant Skill settings.
-		 *
-		 * If a field is submitted empty, restore its generic default
-		 * rather than leaving the assistant without instructions.
 		 */
 		$skill_fields = array(
 			'ai_assistant_role'     => 'sanitize_text_field',
@@ -270,6 +296,109 @@ class WP_RapidRescue_Chat_Settings {
 			'Configure the AI provider used by the plugin.'
 		);
 		echo '</p>';
+	}
+
+	/**
+	 * Render debugging section.
+	 *
+	 * @return void
+	 */
+	public static function render_debug_section() {
+
+		echo '<p>';
+		echo esc_html(
+			'Enable debugging when troubleshooting the AI, ticket, tool, or REST request flow. Debugging should normally remain disabled on a production site.'
+		);
+		echo '</p>';
+	}
+
+	/**
+	 * Render Debug Mode toggle.
+	 *
+	 * @return void
+	 */
+	public static function render_debug_mode_field() {
+
+		$value = self::get(
+			'debug_mode',
+			false
+		);
+
+		$enabled = ! empty( $value );
+
+		?>
+		<div class="rr-debug-toggle-wrapper">
+
+			<label
+				for="rr-debug-mode-toggle"
+				style="
+					display:inline-flex;
+					align-items:center;
+					gap:10px;
+					cursor:pointer;
+				"
+			>
+
+				<input
+					type="checkbox"
+					id="rr-debug-mode-toggle"
+					name="<?php echo esc_attr( self::OPTION_NAME ); ?>[debug_mode]"
+					value="1"
+					<?php checked( $enabled, true ); ?>
+					style="
+						width:18px;
+						height:18px;
+						margin:0;
+					"
+				/>
+
+				<span
+					style="
+						font-weight:600;
+						font-size:14px;
+					"
+				>
+					Enable Debug Mode
+				</span>
+
+			</label>
+
+			<p class="description">
+				<?php
+				echo esc_html(
+					'When enabled, the plugin records diagnostic trace information during requests. Sensitive values such as API keys and email addresses are automatically protected.'
+				);
+				?>
+			</p>
+
+			<?php if ( $enabled ) : ?>
+
+				<p
+					style="
+						margin-top:8px;
+						color:#b32d2e;
+						font-weight:600;
+					"
+				>
+					Debug Mode is currently enabled.
+				</p>
+
+			<?php else : ?>
+
+				<p
+					style="
+						margin-top:8px;
+						color:#008a20;
+						font-weight:600;
+					"
+				>
+					Debug Mode is currently disabled.
+				</p>
+
+			<?php endif; ?>
+
+		</div>
+		<?php
 	}
 
 	/**
@@ -637,12 +766,6 @@ class WP_RapidRescue_Chat_Settings {
 	 */
 	public static function enqueue_admin_assets( $hook_suffix ) {
 
-		/*
-		 * Settings is now a submenu under the plugin's top-level menu.
-		 *
-		 * WordPress generates this hook as:
-		 * wp-rapidrescue-chat_page_wp-rapidrescue-chat-settings
-		 */
 		if (
 			'wp-rapidrescue-chat_page_wp-rapidrescue-chat-settings'
 			!== $hook_suffix
@@ -679,4 +802,4 @@ class WP_RapidRescue_Chat_Settings {
 			)
 		);
 	}
-} 
+}

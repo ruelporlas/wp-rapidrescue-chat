@@ -65,7 +65,7 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 	/**
 	 * Respond using OpenAI native function calling.
 	 *
-	 * PHP remains the authority over all application state,
+	 * PHP remains the authority over application state,
 	 * permissions, customer identity, ticket verification,
 	 * ticket creation, and ticket updates.
 	 *
@@ -99,7 +99,9 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 		}
 
 		$message =
-			(string) $message;
+			sanitize_textarea_field(
+				$message
+			);
 
 		if ( '' === trim( $message ) ) {
 
@@ -113,6 +115,10 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			$context = array();
 		}
 
+		/*
+		 * The Control Engine is evaluated by the AI manager before
+		 * the provider is called. Preserve that PHP-controlled state.
+		 */
 		$tools =
 			$this->get_tools();
 
@@ -130,23 +136,23 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			isset( $context['verified_ticket_keys'] ) &&
 			is_array( $context['verified_ticket_keys'] )
 				? array_values(
-					array_filter(
-						array_map(
-							'sanitize_text_field',
-							$context['verified_ticket_keys']
+					array_unique(
+						array_filter(
+							array_map(
+								'sanitize_text_field',
+								$context['verified_ticket_keys']
+							)
 						)
 					)
 				)
 				: array();
 
 		/*
-		 * The deterministic Control Engine may require one
-		 * specific tool on the first provider request.
+		 * The deterministic Control Engine may require one specific
+		 * tool on the first provider request.
 		 *
-		 * The requirement is consumed once the tool executes.
-		 * We deliberately stop forcing that tool on subsequent
-		 * rounds so OpenAI can formulate the final response from
-		 * the authoritative PHP tool result.
+		 * PHP decides whether the tool is authorized.
+		 * OpenAI only decides how to execute the authorized workflow.
 		 */
 		$required_tool =
 			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
@@ -167,8 +173,11 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 				'input' =>
 					array(
 						array(
-							'role'    => 'user',
-							'content' => $message,
+							'role' =>
+								'user',
+
+							'content' =>
+								$message,
 						),
 					),
 
@@ -180,9 +189,7 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			);
 
 		/*
-		 * Control Engine tool requirement.
-		 *
-		 * Responses API accepts a function-specific tool choice.
+		 * Force the exact PHP-authorized function when required.
 		 */
 		if ( $force_required_tool ) {
 
@@ -233,20 +240,6 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			$round++
 		) {
 
-			/*
-			 * Once the required tool has executed, the next
-			 * request must allow normal model behavior.
-			 */
-			if (
-				$round > 0 &&
-				! $force_required_tool
-			) {
-
-				unset(
-					$request_body['tool_choice']
-				);
-			}
-
 			$result =
 				$this->request(
 					$api_key,
@@ -266,13 +259,14 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 					: '';
 
 			if ( '' !== $response_id ) {
+
 				$previous_response_id =
 					$response_id;
 			}
 
 			/*
-			 * No tool calls means OpenAI has produced the
-			 * final customer-facing response.
+			 * No function calls means OpenAI has completed the
+			 * current workflow and returned its customer response.
 			 */
 			if ( empty( $result['tool_calls'] ) ) {
 
@@ -383,8 +377,9 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 				);
 
 				/*
-				 * Always give PHP's current security context to
-				 * the Tool Manager.
+				 * Always send the authoritative PHP context to the
+				 * Tool Manager. Never allow OpenAI to create its own
+				 * authorization context.
 				 */
 				$current_context =
 					$context;
@@ -428,27 +423,6 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 						'result' =>
 							$tool_result,
 					);
-
-				/*
-				 * The required Control Engine action has now
-				 * been consumed.
-				 */
-				if (
-					'' !== $required_tool &&
-					$tool_name === $required_tool
-				) {
-
-					$force_required_tool =
-						false;
-
-					WP_RapidRescue_Chat_Debug::ai(
-						'Required OpenAI tool executed',
-						array(
-							'tool' =>
-								$tool_name,
-						)
-					);
-				}
 
 				/*
 				 * Preserve security context returned by PHP.
@@ -548,10 +522,7 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 				}
 
 				/*
-				 * Responses API function output item.
-				 *
-				 * The result is returned as a string containing
-				 * the authoritative PHP result.
+				 * Responses API function output.
 				 */
 				$function_outputs[] =
 					array(
@@ -575,10 +546,8 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			/*
-			 * The next request supplies the actual PHP results
-			 * back to the same Responses conversation.
-			 *
-			 * Do not repeat the original user message here.
+			 * Continue the same Responses API conversation using the
+			 * previous response ID and authoritative PHP results.
 			 */
 			$request_body =
 				array(
@@ -602,8 +571,9 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 				);
 
 			/*
-			 * The required tool was already consumed.
-			 * Do not force it on the follow-up request.
+			 * The Control Engine requirement is consumed after the
+			 * authorized tool has executed. The model may now formulate
+			 * the final response or request another legitimate tool.
 			 */
 			$force_required_tool =
 				false;
@@ -686,8 +656,11 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			}
 
 			/*
-			 * OpenAI expects an object schema for function
-			 * parameters.
+			 * Responses API function tool definition.
+			 *
+			 * strict=false is intentional because the existing
+			 * Tool Manager schemas are not required to satisfy the
+			 * stricter Structured Outputs schema rules.
 			 */
 			$tools[] =
 				array(
@@ -740,7 +713,7 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 		}
 
 		/*
-		 * Validate the generated JSON locally before sending it.
+		 * Validate generated JSON locally before sending it.
 		 */
 		json_decode(
 			$json_body,
@@ -873,13 +846,12 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 			array();
 
 		/*
-		 * Responses API returns function calls as output items
-		 * with:
+		 * Responses API function calls are returned as output items:
 		 *
-		 * type       = function_call
-		 * name       = tool name
-		 * call_id    = tool call identifier
-		 * arguments  = JSON string
+		 * type      = function_call
+		 * name      = function name
+		 * call_id   = function call identifier
+		 * arguments = JSON string
 		 */
 		if (
 			isset( $data['output'] ) &&
@@ -908,52 +880,53 @@ class WP_RapidRescue_Chat_AI_OpenAI extends WP_RapidRescue_Chat_AI_Provider {
 						: '';
 
 				if (
-					'function_call' ===
+					'function_call' !==
 					$type
 				) {
+					continue;
+				}
 
-					$name =
-						isset(
+				$name =
+					isset(
+						$output_item['name']
+					)
+						? sanitize_key(
 							$output_item['name']
 						)
-							? sanitize_key(
-								$output_item['name']
-							)
-							: '';
+						: '';
 
-					$call_id =
-						isset(
+				$call_id =
+					isset(
+						$output_item['call_id']
+					)
+						? sanitize_text_field(
 							$output_item['call_id']
 						)
-							? sanitize_text_field(
-								$output_item['call_id']
-							)
-							: '';
+						: '';
 
-					$arguments =
-						isset(
-							$output_item['arguments']
-						)
-							? $output_item['arguments']
-							: array();
+				$arguments =
+					isset(
+						$output_item['arguments']
+					)
+						? $output_item['arguments']
+						: array();
 
-					if (
-						'' !== $name &&
-						'' !== $call_id
-					) {
+				if (
+					'' !== $name &&
+					'' !== $call_id
+				) {
 
-						$tool_calls[] =
-							array(
-								'name' =>
-									$name,
+					$tool_calls[] =
+						array(
+							'name' =>
+								$name,
 
-								'call_id' =>
-									$call_id,
+							'call_id' =>
+								$call_id,
 
-								'arguments' =>
-									$arguments,
-							);
-					}
+							'arguments' =>
+								$arguments,
+						);
 				}
 			}
 		}
