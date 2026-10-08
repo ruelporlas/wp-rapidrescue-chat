@@ -17,6 +17,22 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 	const API_ENDPOINT    = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 	const MAX_TOOL_ROUNDS = 6;
 
+	/**
+	 * Tools that are safe to expose when PHP has not authorized
+	 * an application-changing operation.
+	 *
+	 * IMPORTANT:
+	 * create_ticket and update_ticket are intentionally excluded.
+	 *
+	 * @var array
+	 */
+	const READ_ONLY_TOOLS = array(
+		'search_knowledge',
+		'get_customer',
+		'lookup_ticket',
+		'verify_ticket',
+	);
+
 	public function get_id() {
 
 		return 'gemini';
@@ -37,6 +53,9 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 	/**
 	 * Respond using Gemini function calling.
+	 *
+	 * PHP Control Engine is the authority over which application
+	 * operation may execute.
 	 *
 	 * @param string $message Message.
 	 * @param array  $context Runtime context.
@@ -71,8 +90,57 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 			$context = array();
 		}
 
-		$tools =
-			$this->get_tools();
+		/*
+		 * PHP determines whether a specific application-changing
+		 * tool is currently authorized.
+		 */
+		$required_tool =
+			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
+				$context
+			);
+
+		$required_tool =
+			sanitize_key(
+				$required_tool
+			);
+
+		$required_tool_pending =
+			'' !== $required_tool;
+
+		/*
+		 * ---------------------------------------------------------
+		 * TOOL AVAILABILITY
+		 * ---------------------------------------------------------
+		 *
+		 * If PHP has authorized a required tool, expose ONLY that
+		 * exact tool.
+		 *
+		 * If PHP has NOT authorized a required tool, expose only
+		 * read-only tools.
+		 *
+		 * Therefore Gemini cannot invent:
+		 *
+		 * - create_ticket
+		 * - update_ticket
+		 *
+		 * during an ordinary conversation or email collection step.
+		 */
+		if ( $required_tool_pending ) {
+
+			$tools =
+				$this->get_tools(
+					array(
+						$required_tool,
+					)
+				);
+
+		} else {
+
+			$tools =
+				$this->get_tools(
+					self::READ_ONLY_TOOLS
+				);
+		}
 
 		$system_instruction =
 			WP_RapidRescue_Chat_AI::get_system_instructions();
@@ -98,15 +166,15 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 				: array();
 
 		/*
-		 * PHP determines whether a specific tool is required.
+		 * PHP-controlled identity follow-up flag.
+		 *
+		 * This is informational to the provider and reinforces that
+		 * an email-only message is not ticket authorization.
 		 */
-		$required_tool =
-			WP_RapidRescue_Chat_Control_Engine::get_required_tool(
-				$context
+		$identity_followup =
+			! empty(
+				$context['identity_followup']
 			);
-
-		$required_tool_pending =
-			'' !== $required_tool;
 
 		$request_body = array(
 			'model'              => $model,
@@ -117,7 +185,12 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 		);
 
 		/*
-		 * Force the exact PHP-authorized tool.
+		 * ---------------------------------------------------------
+		 * REQUIRED TOOL MODE
+		 * ---------------------------------------------------------
+		 *
+		 * When PHP requires a specific application operation,
+		 * Gemini is constrained to that exact tool.
 		 */
 		if ( $required_tool_pending ) {
 
@@ -145,6 +218,19 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 						$required_tool,
 				)
 			);
+
+		} else {
+
+			WP_RapidRescue_Chat_Debug::ai(
+				'Gemini restricted to read-only tools',
+				array(
+					'identity_followup' =>
+						$identity_followup,
+
+					'tool_count' =>
+						count( $tools ),
+				)
+			);
 		}
 
 		WP_RapidRescue_Chat_Debug::ai(
@@ -164,6 +250,9 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 				'required_tool_pending' =>
 					$required_tool_pending,
+
+				'identity_followup' =>
+					$identity_followup,
 
 				'endpoint' =>
 					self::API_ENDPOINT,
@@ -319,34 +408,35 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					continue;
 				}
 
-				WP_RapidRescue_Chat_Debug::tool(
-					'Executing AI tool',
-					array(
-						'tool' =>
-							$tool_name,
-					)
-				);
-
-				$current_context =
-					$context;
-
-				$current_context['customer_id'] =
-					$verified_customer_id;
-
-				$current_context['verified_ticket_keys'] =
-					$verified_ticket_keys;
-
-				$current_context['required_tool_pending'] =
-					$required_tool_pending;
-
-				$tool_result =
-					WP_RapidRescue_Chat_Tool_Manager::execute(
+				/*
+				 * Defense in depth.
+				 *
+				 * Even though the Gemini request only contains
+				 * authorized tools, never allow a write tool to slip
+				 * through if PHP did not explicitly require it.
+				 */
+				if (
+					in_array(
 						$tool_name,
-						$arguments,
-						$current_context
-					);
+						array(
+							'create_ticket',
+							'update_ticket',
+						),
+						true
+					) &&
+					$tool_name !== $required_tool
+				) {
 
-				if ( is_wp_error( $tool_result ) ) {
+					WP_RapidRescue_Chat_Debug::tool(
+						'Gemini write tool blocked because PHP did not authorize it',
+						array(
+							'tool' =>
+								$tool_name,
+
+							'required_tool' =>
+								$required_tool,
+						)
+					);
 
 					$tool_result =
 						array(
@@ -354,14 +444,64 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 								false,
 
 							'state' =>
-								'tool_error',
+								'php_authorization_required',
 
 							'next_action' =>
-								'tool_error',
+								'continue_conversation',
 
-							'error' =>
-								$tool_result->get_error_message(),
+							'tool' =>
+								$tool_name,
+
+							'blocked' =>
+								true,
 						);
+
+				} else {
+
+					WP_RapidRescue_Chat_Debug::tool(
+						'Executing AI tool',
+						array(
+							'tool' =>
+								$tool_name,
+						)
+					);
+
+					$current_context =
+						$context;
+
+					$current_context['customer_id'] =
+						$verified_customer_id;
+
+					$current_context['verified_ticket_keys'] =
+						$verified_ticket_keys;
+
+					$current_context['required_tool_pending'] =
+						$required_tool_pending;
+
+					$tool_result =
+						WP_RapidRescue_Chat_Tool_Manager::execute(
+							$tool_name,
+							$arguments,
+							$current_context
+						);
+
+					if ( is_wp_error( $tool_result ) ) {
+
+						$tool_result =
+							array(
+								'success' =>
+									false,
+
+								'state' =>
+									'tool_error',
+
+								'next_action' =>
+									'tool_error',
+
+								'error' =>
+									$tool_result->get_error_message(),
+							);
+					}
 				}
 
 				$tool_results[] =
@@ -543,7 +683,15 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					(string) $system_instruction,
 
 				'tools' =>
-					$tools,
+					$required_tool_pending
+						? $this->get_tools(
+							array(
+								$required_tool,
+							)
+						)
+						: $this->get_tools(
+							self::READ_ONLY_TOOLS
+						),
 
 				'store' =>
 					true,
@@ -583,9 +731,14 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 	/**
 	 * Get normalized Gemini tools.
 	 *
+	 * When $allowed_tools is supplied, only those tools are returned.
+	 *
+	 * @param array|null $allowed_tools Allowed tool names.
 	 * @return array
 	 */
-	public function get_tools() {
+	public function get_tools(
+		$allowed_tools = null
+	) {
 
 		$registered_tools =
 			WP_RapidRescue_Chat_Tool_Manager::get_tools();
@@ -594,6 +747,28 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 
 		if ( ! is_array( $registered_tools ) ) {
 			return $tools;
+		}
+
+		$allowed_lookup = null;
+
+		if ( is_array( $allowed_tools ) ) {
+
+			$allowed_lookup = array();
+
+			foreach ( $allowed_tools as $allowed_tool ) {
+
+				$allowed_tool =
+					sanitize_key(
+						$allowed_tool
+					);
+
+				if ( '' !== $allowed_tool ) {
+
+					$allowed_lookup[
+						$allowed_tool
+					] = true;
+				}
+			}
 		}
 
 		foreach ( $registered_tools as $tool ) {
@@ -610,6 +785,18 @@ class WP_RapidRescue_Chat_AI_Gemini extends WP_RapidRescue_Chat_AI_Provider {
 					: '';
 
 			if ( '' === $name ) {
+				continue;
+			}
+
+			/*
+			 * Apply the PHP-selected allow-list.
+			 */
+			if (
+				is_array( $allowed_lookup ) &&
+				! isset(
+					$allowed_lookup[ $name ]
+				)
+			) {
 				continue;
 			}
 
