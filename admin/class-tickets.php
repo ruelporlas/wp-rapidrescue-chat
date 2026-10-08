@@ -34,9 +34,6 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 			return;
 		}
 
-		/*
-		 * Process an admin ticket update before rendering.
-		 */
 		self::handle_update();
 
 		$ticket_id = isset( $_GET['ticket_id'] )
@@ -182,10 +179,6 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 			return;
 		}
 
-		/*
-		 * Redirect after POST so refreshing the page does not
-		 * submit the update again.
-		 */
 		$redirect_url =
 			add_query_arg(
 				array(
@@ -215,11 +208,6 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 		$message
 	) {
 
-		/*
-		 * Store the notice in a short-lived global for the current
-		 * request. This is primarily used when rendering continues
-		 * after validation fails.
-		 */
 		global $wp_rapidrescue_ticket_admin_notice;
 
 		$wp_rapidrescue_ticket_admin_notice = array(
@@ -511,7 +499,6 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 			);
 
 		?>
-
 		<div class="wrap">
 
 			<?php self::render_request_notice(); ?>
@@ -539,6 +526,7 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 					grid-template-columns:minmax(0,2fr) minmax(280px,1fr);
 					gap:20px;
 					max-width:1200px;
+					align-items:start;
 				"
 			>
 
@@ -554,24 +542,47 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 						"
 					>
 
-						<h2 style="margin-top:0;">
+						<h2
+							style="
+								margin:0 0 20px 0;
+								text-align:left;
+								line-height:1.4;
+							"
+						>
 							<?php echo esc_html( $ticket->subject ); ?>
 						</h2>
 
-						<h3>
+						<h3
+							style="
+								margin:0 0 10px 0;
+								text-align:left;
+							"
+						>
 							Issue Summary
 						</h3>
 
 						<div
 							style="
-								white-space:pre-wrap;
-								overflow-wrap:anywhere;
+								display:block;
+								width:100%;
+								box-sizing:border-box;
+								margin:0;
+								padding:0;
+								text-align:left;
+								font-family:inherit;
+								font-size:14px;
+								font-weight:400;
 								line-height:1.6;
+								color:#1d2327;
+								overflow-wrap:anywhere;
+								word-break:normal;
 							"
 						>
 							<?php
 							echo esc_html(
-								$ticket->summary
+								trim(
+									$ticket->summary
+								)
 							);
 							?>
 						</div>
@@ -985,11 +996,11 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 	private static function get_statuses() {
 
 		return array(
-			'open' => 'Open',
-			'in_progress' => 'In Progress',
+			'open'             => 'Open',
+			'in_progress'      => 'In Progress',
 			'waiting_customer' => 'Waiting for Customer',
-			'resolved' => 'Resolved',
-			'closed' => 'Closed',
+			'resolved'         => 'Resolved',
+			'closed'           => 'Closed',
 		);
 	}
 
@@ -1105,3 +1116,4 @@ class WP_RapidRescue_Chat_Tickets_Admin {
 		}
 	}
 }
+

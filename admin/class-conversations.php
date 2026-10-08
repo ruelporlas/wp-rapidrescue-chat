@@ -342,7 +342,6 @@ class WP_RapidRescue_Chat_Conversations_Admin {
 
 							<div
 								style="
-									white-space: pre-wrap;
 									overflow-wrap: anywhere;
 								"
 							>
